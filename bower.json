@@ -3,6 +3,7 @@
   "private": true,
   "dependencies": {
     "polymer": "Polymer/polymer",
+    "core-selector": "Polymer/core-selector",
     "polymer-ui-menu": "Polymer/polymer-ui-menu",
     "polymer-ui-menu-item": "Polymer/polymer-ui-menu-item",
     "polymer-ui-submenu-item": "Polymer/polymer-ui-submenu-item",
