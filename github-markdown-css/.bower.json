@@ -32,6 +32,5 @@
   },
   "_source": "git://github.com/sindresorhus/github-markdown-css.git",
   "_target": "~0.2.0",
-  "_originalSource": "github-markdown-css",
-  "_direct": true
+  "_originalSource": "github-markdown-css"
 }

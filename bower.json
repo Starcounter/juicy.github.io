@@ -4,10 +4,10 @@
   "dependencies": {
     "polymer": "Polymer/polymer",
     "core-selector": "Polymer/core-selector",
-    "polymer-ui-menu": "Polymer/polymer-ui-menu",
-    "polymer-ui-menu-item": "Polymer/polymer-ui-menu-item",
-    "polymer-ui-submenu-item": "Polymer/polymer-ui-submenu-item",
     "jsoneditor": "~3.0.0",
-    "github-markdown-css": "~0.2.0"
+    "github-markdown-css": "~0.2.0",
+    "core-menu": "Polymer/core-menu#~0.3.4",
+    "core-item": "Polymer/core-item#~0.3.4",
+    "core-icons": "Polymer/core-icons#~0.3.4"
   }
 }
