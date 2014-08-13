@@ -8,6 +8,7 @@
     "github-markdown-css": "~0.2.0",
     "core-menu": "Polymer/core-menu#~0.3.4",
     "core-item": "Polymer/core-item#~0.3.4",
-    "core-icons": "Polymer/core-icons#~0.3.4"
+    "core-icons": "Polymer/core-icons#~0.3.4",
+    "marked": "~0.3.2"
   }
 }
