@@ -12,6 +12,7 @@
     "marked": "~0.3.2",
     "core-ajax": "Polymer/core-ajax#~0.3.5",
     "core-localstorage": "Polymer/core-localstorage#~0.4.1",
-    "d3": "~3.4.12"
+    "d3": "~3.4.12",
+    "fast-json-patch": "~0.4.0"
   }
 }
