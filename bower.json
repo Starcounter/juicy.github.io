@@ -4,7 +4,7 @@
   "dependencies": {
     "polymer": "Polymer/polymer",
     "core-selector": "Polymer/core-selector",
-    "jsoneditor": "~3.0.0",
+    "jsoneditor": "tomalec/jsoneditor#102-onChangeArgumentsBuilt",
     "github-markdown-css": "~0.2.0",
     "core-menu": "Polymer/core-menu#~0.3.4",
     "core-item": "Polymer/core-item#~0.3.4",
