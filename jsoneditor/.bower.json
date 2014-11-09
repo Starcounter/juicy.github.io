@@ -30,11 +30,11 @@
     ".gitignore"
   ],
   "dependencies": {},
-  "_release": "e304903c3f",
+  "_release": "cb2da17b7f",
   "_resolution": {
     "type": "branch",
     "branch": "102-onChangeArgumentsBuilt",
-    "commit": "e304903c3f35ec32c2aa172c7c2677a7761c011d"
+    "commit": "cb2da17b7f7f1b5d82d481f2bee2b624cf0298a3"
   },
   "_source": "git://github.com/tomalec/jsoneditor.git",
   "_target": "102-onChangeArgumentsBuilt",

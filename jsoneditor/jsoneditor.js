@@ -24,7 +24,7 @@
  *
  * @author  Jos de Jong, <wjosdejong@gmail.com>
  * @version 3.1.2
- * @date    2014-11-05
+ * @date    2014-11-10
  */
 (function webpackUniversalModuleDefinition(root, factory) {
 	if(typeof exports === 'object' && typeof module === 'object')
@@ -1299,7 +1299,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	      if (options.change) {
 	        // register onchange event
 	        editor.on('change', function () {
-	          options.change();
+	          options.change(replaceRootJSONPatch(me));
 	        });
 	      }
 	    }
@@ -1315,13 +1315,13 @@ return /******/ (function(modules) { // webpackBootstrap
 	        // register onchange event
 	        if (this.textarea.oninput === null) {
 	          this.textarea.oninput = function () {
-	            options.change();
+	            options.change(replaceRootJSONPatch(me));
 	          }
 	        }
 	        else {
 	          // oninput is undefined. For IE8-
 	          this.textarea.onchange = function () {
-	            options.change();
+	            options.change(replaceRootJSONPatch(me));
 	          }
 	        }
 	      }
@@ -1440,6 +1440,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	      this.editor.setValue(jsonText, -1);
 	    }
 	  };
+
+	  function replaceRootJSONPatch(textmode){
+	    return {
+	          op: "replace",
+	          path: "",
+	          value: textmode.get()
+	        }
+	  }
 
 	  // define modes
 	  return [
