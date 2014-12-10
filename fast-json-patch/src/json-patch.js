@@ -1,5 +1,6 @@
 /*!
-* json-patch-duplex.js 0.4.1
+* https://github.com/Starcounter-Jack/Fast-JSON-Patch
+* json-patch-duplex.js 0.5.0
 * (c) 2013 Joachim Wester
 * MIT license
 */
@@ -262,3 +263,4 @@ var jsonpatch;
 if (typeof exports !== "undefined") {
     exports.apply = jsonpatch.apply;
 }
+//# sourceMappingURL=json-patch.js.map
