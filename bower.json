@@ -5,14 +5,15 @@
     "polymer": "Polymer/polymer#<0.8.0",
     "core-selector": "Polymer/core-selector#<0.8.0",
     "jsoneditor": "josdejong/jsoneditor#master",
-    "github-markdown-css": "~0.2.0",
+    "github-markdown-css": "^0.2.0",
     "core-menu": "Polymer/core-menu#<0.8.0",
     "core-item": "Polymer/core-item#<0.8.0",
     "core-icons": "Polymer/core-icons#<0.8.0",
-    "marked": "~0.3.2",
+    "marked": "^0.3.2",
     "core-ajax": "Polymer/core-ajax#<0.8.0",
     "core-localstorage": "Polymer/core-localstorage#<0.8.0",
     "d3": "~3.4.12",
-    "fast-json-patch": "~0.5.2"
+    "fast-json-patch": "~0.5.2",
+    "highlightjs": "~8.7.0"
   }
 }
