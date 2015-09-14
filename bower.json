@@ -16,5 +16,8 @@
     "fast-json-patch": "~0.5.2",
     "highlightjs": "~8.7.0",
     "ace-builds": "~1.2.0"
+  },
+  "devDependencies": {
+    "web-component-tester": "~3.3.21"
   }
 }
