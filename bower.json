@@ -20,6 +20,8 @@
     "web-component-tester": "~3.3.21",
     "iron-ajax": "PolymerElements/iron-ajax",
     "iron-icon": "PolymerElements/iron-icon",
-    "iron-iconset-svg": "PolymerElements/iron-iconset-svg"
+    "iron-iconset-svg": "PolymerElements/iron-iconset-svg",
+    "object.observe": "~0.2.4",
+    "array.observe": "~0.0.1"
   }
 }
