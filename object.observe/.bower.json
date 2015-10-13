@@ -1,6 +1,6 @@
 {
   "name": "object.observe",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "homepage": "https://github.com/MaxArt2501/object-observe",
   "authors": [
     "Massimo Artizzu <maxart.x@gmail.com>"
@@ -24,14 +24,14 @@
     "tests",
     "util"
   ],
-  "_release": "0.2.4",
+  "_release": "0.2.5",
   "_resolution": {
     "type": "version",
-    "tag": "0.2.4",
-    "commit": "004eaea68c4d14ac07dc0b909b34aa03bfe881c5"
+    "tag": "0.2.5",
+    "commit": "6d729f13f6799be5c1b6fc7500375f2c1bad7376"
   },
-  "_source": "git://github.com/MaxArt2501/object-observe.git",
-  "_target": "~0.2.4",
-  "_originalSource": "object.observe",
+  "_source": "git://github.com/miyconst/object-observe.git",
+  "_target": "~0.2.5",
+  "_originalSource": "miyconst/object-observe",
   "_direct": true
 }

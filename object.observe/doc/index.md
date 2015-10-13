@@ -7,9 +7,9 @@ Object.observe polyfill
 
 `Object.observe` is a very nice [EcmaScript 7 feature](http://arv.github.io/ecmascript-object-observe/) that has landed on Blink-based browsers (Chrome 36+, Opera 23+) in the [first part of 2014](http://www.html5rocks.com/en/tutorials/es7/observe/). [Node.js](https://nodejs.org/) delivers it too in version 0.11.x, and it's supported by [io.js](https://iojs.org/) since its first public release.
 
-In short, it's one of the things web developers wish they had 10-15 years ago: it notifies the application of any changes made to an object, like adding, deleting or updating a property, changing its descriptor and so on. It even supports custom events. Sweet!
+In short, it's one of the things web developers wish they had 10-15 years ago: it notifies the application of any change made to an object, like adding, deleting or updating a property, changing its descriptor and so on. It even supports custom events. Sweet!
 
-The problem is that most browsers still doesn't support `Object.observe`. While technically it's *impossible* to perfectly replicate the feature's behaviour, something useful can be done keeping the same API.
+The problem is that most browsers still don't support `Object.observe`. While technically it's *impossible* to perfectly replicate the feature's behaviour, something useful can be done keeping the same API.
 
 After giving a look at other polyfills, like [jdarling's](https://github.com/jdarling/Object.observe) and [joelgriffith's](https://github.com/joelgriffith/object-observe-es5), and taking inspiration from them, I decided to write one myself trying to be more adherent to the specifications.
 
@@ -94,48 +94,39 @@ if (!Object.observe) require("object.observe");
 
 Keep into consideration that this shim *hasn't been developed with node.js in mind*, so it doesn't make use of all the node.js goodies that could make this polyfill more efficient. They may be implemented in the future, but for now it works just fine. Node.js supports `Object.observe` since version 0.12.0, and the "beta" channel does since 0.11.13.
 
+## Loading on a client
+
+In a server side environment, as in node.js (see above), loading the polyfill as a module shouldn't bring any problems. On a client, on the other hand, it's common to pack all the module dependencies in a single file to minimize client requests. Whether using [Browserify](http://browserify.org/), [webpack](http://webpack.github.io/), R.js ([RequireJS](http://requirejs.org/)' packer) or any other tool for the task, developers should be aware that there's no way to reliably dynamically load the polyfill.
+
+For example, using RequireJS, one would do something like:
+
+```js
+var dependencies = [ "jquery" ];
+if (!Object.observe) dependencies.push("object-observe-lite.min");
+define(dependencies, function($) {
+    ...
+});
+```
+
+But, over the fact that R.js' can't analyze a more complex loading pattern like this one, it simply con't perform a client side test on the server. So, the module is *always* packer in the final script. So, in the end, it's not even necessary to check the definition of `Object.observe`, since the polyfill does it on its own.
+
+It's not even much of a problem, though: the polyfill is currently 2269 bytes minified and gzipped (and 1768 bytes for the "lite" version), so it's probably a bearable load for every client.
+
+If your project does *not* pack the scripts in a single file (which may be fine for small projects or on HTTP2/SPDY connections, or in environments where loading times don't matter), this allows you to load the script only if necessary:
+
+```html
+<script>if (Object.observe) document.write('<script src="object-observe.js"></script>')</script>
+```
+
+Notice the absence of the `async` attribute, as you would probably load it before everything other script that uses `Object.observe`.
+
 ## To do
 
-* Some deeper considerations about whether using `Object.prototype.watch` or not;
-* code benchmarks, documentation, optimization and cleanup.
+* code optimization and cleanup.
 
 ### `Array.observe`
 
-The [spec](http://arv.github.io/ecmascript-object-observe/#Array.observe) only states that `Array.observe` is just like `Object.observe` with a fixed accept list of `["add", "update", "delete", "splice"]`, and `Array.unobserve` is equivalent to `Object.unobserve`. That's fine, but where does that `"splice"` event come from?
-
-It's actually triggered by any operation on the array that *may* change the length of the array itself, like `push()` or `splice()`. These operations internally call `notifier.performChange("splice", ...)`, so one solution would be wrapping these methods in `Array.prototype` - or maybe better in the observed array itself - in a `performChange` call. Unfortunately, besides the obvious performance hit, this obtrusive intervention doesn't help detecting a `"splice"` change triggered by this operation:
-
-```js
-var fibonacci = [ 0, 1, 1, 2, 3 ];
-Array.observe(fibonacci, ...);
-fibonacci[5] = 5;
-```
-
-There's no way to trap this, and forcing developers to only use `Array.prototype` methods leaves me unsure (and it may even be ineffective if the arrays comes from another window frame, for example). So, still have to figure out what to do.
-
-Anyway, this is what wrapping an `Array` method would look like:
-
-```js
-(function(arrayPush) {
-    Array.prototype.push = function push(item) {
-        var args = arguments;
-        Object.getNotifier(this).performChange("splice", function() {
-            var index = this.length;
-            arrayPush.apply(this, args);
-
-            return {
-                index: index,
-                addedCount: args.length,
-                removed: []
-            };
-        }, this);
-
-        return this.length;
-    };
-})(Array.prototype.push);
-```
-
-If you're ok with this, you can add this kind of wrappers to your code, one for every method that triggers a `"splice"` change (namely: `push`, `pop`, `splice`, `shift` and `unshift`) and define `Array.observe`/`unobserve` as described above.
+The [spec](http://arv.github.io/ecmascript-object-observe/#Array.observe) only states that `Array.observe` is just like `Object.observe` with a fixed accept list of `["add", "update", "delete", "splice"]`, and `Array.unobserve` is equivalent to `Object.unobserve`. The `"splice"` event is especially tricky to deal with, but a polyfill for `Array.observe` that wraps the native array methods is available [here](https://github.com/MaxArt2501/array-observe), along with a documentation that explains the problem around the polyfill.
 
 ## Tests
 
