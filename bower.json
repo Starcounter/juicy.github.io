@@ -17,7 +17,7 @@
     "ace-builds": "~1.2.0"
   },
   "devDependencies": {
-    "web-component-tester": "~3.3.21",
+    "web-component-tester": "*",
     "iron-ajax": "PolymerElements/iron-ajax",
     "iron-icon": "PolymerElements/iron-icon",
     "iron-iconset-svg": "PolymerElements/iron-iconset-svg",
