@@ -1,44 +1,42 @@
 /*!
  * https://github.com/Starcounter-Jack/JSON-Patch
- * json-patch-duplex.js version: 0.5.4
+ * json-patch-duplex.js version: 1.0.0
  * (c) 2013 Joachim Wester
  * MIT license
  */
 
-interface Object {
-  observe : any;
-  deliverChangeRecords : any;
-  unobserve : any;
-  setPrototypeOf : any;
+interface HTMLElement {
+  attachEvent : Function;
+  detachEvent : Function;
 }
+
 
 var OriginalError = Error;
 
 module jsonpatch {
-  /* Do nothing if module is already defined.
-     Doesn't look nice, as we cannot simply put
-     `!jsonpatch &&` before this immediate function call
-     in TypeScript.
-     */
-  if (jsonpatch.observe) {
-      return;
-  }
+  var _objectKeys = function (obj) {
+    if (_isArray(obj)) {
+      var keys = new Array(obj.length);
 
-
-  var _objectKeys = (function () {
-    if (Object.keys)
-      return Object.keys;
-
-    return function (o) { //IE8
-      var keys = [];
-      for (var i in o) {
-        if (o.hasOwnProperty(i)) {
-          keys.push(i);
-        }
+      for (var k = 0; k < keys.length; k++) {
+        keys[k] = "" + k;
       }
+
       return keys;
     }
-  })();
+
+    if (Object.keys) {
+      return Object.keys(obj);
+    }
+
+    var keys = [];
+    for (var i in obj) {
+      if (obj.hasOwnProperty(i)) {
+        keys.push(i);
+      }
+    }
+    return keys;
+  };
 
   function _equals(a, b) {
     switch (typeof a) {
@@ -87,26 +85,34 @@ module jsonpatch {
   var objOps = {
     add: function (obj, key) {
       obj[key] = this.value;
-      return true;
     },
     remove: function (obj, key) {
+      var removed = obj[key];
       delete obj[key];
-      return true;
+      return removed;
     },
     replace: function (obj, key) {
+      var removed = obj[key];
       obj[key] = this.value;
-      return true;
+      return removed;
     },
     move: function (obj, key, tree) {
+      var getOriginalDestination : any = {op: "_get", path: this.path};
+      apply(tree, [getOriginalDestination]);
+      // In case value is moved up and overwrites its ancestor
+      var original = getOriginalDestination.value === undefined ?
+          undefined : JSON.parse(JSON.stringify(getOriginalDestination.value));
+
       var temp:any = {op: "_get", path: this.from};
       apply(tree, [temp]);
+
       apply(tree, [
         {op: "remove", path: this.from}
       ]);
       apply(tree, [
         {op: "add", path: this.path, value: temp.value}
       ]);
-      return true;
+      return original;
     },
     copy: function (obj, key, tree) {
       var temp:any = {op: "_get", path: this.from};
@@ -114,7 +120,6 @@ module jsonpatch {
       apply(tree, [
         {op: "add", path: this.path, value: temp.value}
       ]);
-      return true;
     },
     test: function (obj, key) {
       return _equals(obj[key], this.value);
@@ -128,15 +133,17 @@ module jsonpatch {
   var arrOps = {
     add: function (arr, i) {
       arr.splice(i, 0, this.value);
-      return true;
+      // this may be needed when using '-' in an array
+      return i;
     },
     remove: function (arr, i) {
-      arr.splice(i, 1);
-      return true;
+      var removedList = arr.splice(i, 1);
+      return removedList[0];
     },
     replace: function (arr, i) {
+      var removed = arr[i];
       arr[i] = this.value;
-      return true;
+      return removed;
     },
     move: objOps.move,
     copy: objOps.copy,
@@ -153,24 +160,25 @@ module jsonpatch {
           obj[key] = this.value[key];
         }
       }
-      return true;
     },
     remove: function (obj) {
+      var removed = {};
       for (var key in obj) {
         if (obj.hasOwnProperty(key)) {
+          removed[key] = obj[key];
           objOps.remove.call(this, obj, key);
         }
       }
-      return true;
+      return removed;
     },
     replace: function (obj) {
-      apply(obj, [
+      var removed = apply(obj, [
         {op: "remove", path: this.path}
       ]);
       apply(obj, [
         {op: "add", path: this.path, value: this.value}
       ]);
-      return true;
+      return removed[0];
     },
     move: objOps.move,
     copy: objOps.copy,
@@ -179,31 +187,6 @@ module jsonpatch {
     },
     _get: function (obj) {
       this.value = obj;
-    }
-  };
-
-  var observeOps = {
-    add: function (patches:any[], path) {
-      var patch = {
-        op: "add",
-        path: path + escapePathComponent(this.name),
-        value: this.object[this.name]};
-      patches.push(patch);
-    },
-    'delete': function (patches:any[], path) { //single quotes needed because 'delete' is a keyword in IE8
-      var patch = {
-        op: "remove",
-        path: path + escapePathComponent(this.name)
-      };
-      patches.push(patch);
-    },
-    update: function (patches:any[], path) {
-      var patch = {
-        op: "replace",
-        path: path + escapePathComponent(this.name),
-        value: this.object[this.name]
-      };
-      patches.push(patch);
     }
   };
 
@@ -242,8 +225,6 @@ module jsonpatch {
   }
 
   var beforeDict = [];
-
-  export var intervals;
 
   class Mirror {
     obj: any;
@@ -290,25 +271,19 @@ module jsonpatch {
   }
 
   export function unobserve(root, observer) {
-    generate(observer);
-    if(Object.observe) {
-      _unobserve(observer, root);
-    }
-    else {
-      clearTimeout(observer.next);
-    }
-
-    var mirror = getMirror(root);
-    removeObserverFromMirror(mirror, observer);
-
+    observer.unobserve();
   }
 
   function deepClone(obj:any) {
-    if (typeof obj === "object") {
-      return JSON.parse(JSON.stringify(obj)); //Faster than ES5 clone - http://jsperf.com/deep-cloning-of-objects/5
-    }
-    else {
-      return obj; //no need to clone primitives
+    switch (typeof obj) {
+      case "object":
+        return JSON.parse(JSON.stringify(obj)); //Faster than ES5 clone - http://jsperf.com/deep-cloning-of-objects/5
+
+      case "undefined":
+        return null; //this is how JSON.stringify behaves for array items
+
+      default:
+        return obj; //no need to clone primitives
     }
   }
 
@@ -329,136 +304,68 @@ module jsonpatch {
       return observer;
     }
 
-    if (Object.observe) {
-      observer = function (arr) {
-        //This "refresh" is needed to begin observing new object properties
-        _unobserve(observer, obj);
-        _observe(observer, obj);
+    observer = {};
 
-        var a = 0
-          , alen = arr.length;
-        while (a < alen) {
-          if (
-            !(arr[a].name === 'length' && _isArray(arr[a].object))
-              && !(arr[a].name === '__Jasmine_been_here_before__')
-            ) {
-            observeOps[arr[a].type].call(arr[a], patches, getPath(root, arr[a].object));
-          }
-          a++;
-        }
+    mirror.value = deepClone(obj);
 
-        if (patches) {
-          if (callback) {
-            callback(patches);
-          }
-        }
-        observer.patches = patches;
-        patches = [];
+    if (callback) {
+      observer.callback = callback;
+      observer.next = null;
 
-
-      };
-    } else {
-      observer = {};
-
-      mirror.value = deepClone(obj);
-
-      if (callback) {
-        //callbacks.push(callback); this has no purpose
-        observer.callback = callback;
-        observer.next = null;
-        var intervals = this.intervals || [100, 1000, 10000, 60000];
-        if (intervals.push === void 0) {
-          throw new OriginalError("jsonpatch.intervals must be an array");
-        }
-        var currentInterval = 0;
-
-        var dirtyCheck = function () {
+      var dirtyCheck = () => {
           generate(observer);
-        };
-        var fastCheck = function () {
+      };
+      var fastCheck = () => {
           clearTimeout(observer.next);
-          observer.next = setTimeout(function () {
-            dirtyCheck();
-            currentInterval = 0;
-            observer.next = setTimeout(slowCheck, intervals[currentInterval++]);
-          }, 0);
-        };
-        var slowCheck = function () {
-          dirtyCheck();
-          if (currentInterval == intervals.length)
-            currentInterval = intervals.length - 1;
-          observer.next = setTimeout(slowCheck, intervals[currentInterval++]);
-        };
-        if (typeof window !== 'undefined') { //not Node
-          if (window.addEventListener) { //standards
-            window.addEventListener('mousedown', fastCheck);
-            window.addEventListener('mouseup', fastCheck);
-            window.addEventListener('keydown', fastCheck);
-          }
-          else { //IE8
-            document.documentElement.attachEvent('onmousedown', fastCheck);
-            document.documentElement.attachEvent('onmouseup', fastCheck);
-            document.documentElement.attachEvent('onkeydown', fastCheck);
-          }
+          observer.next = setTimeout(dirtyCheck);
+      };
+      if (typeof window !== 'undefined') { //not Node
+        if (window.addEventListener) { //standards
+          window.addEventListener('mouseup', fastCheck);
+          window.addEventListener('keyup', fastCheck);
         }
-        observer.next = setTimeout(slowCheck, intervals[currentInterval++]);
+        else { //IE8
+          document.documentElement.attachEvent('onmouseup', fastCheck);
+          document.documentElement.attachEvent('onkeyup', fastCheck);
+        }
       }
     }
     observer.patches = patches;
     observer.object = obj;
 
+    observer.unobserve = () => {
+        generate(observer);
+        clearTimeout(observer.next);
+        removeObserverFromMirror(mirror, observer);
+
+        if (typeof window !== 'undefined') {
+            if (window.removeEventListener) {
+                window.removeEventListener('mouseup', fastCheck);
+                window.removeEventListener('keyup', fastCheck);
+            }
+            else {
+                document.documentElement.detachEvent('onmouseup', fastCheck);
+                document.documentElement.detachEvent('onkeyup', fastCheck);
+            }
+        }
+    };
+
     mirror.observers.push(new ObserverInfo(callback, observer));
 
-    return _observe(observer, obj);
-  }
-
-  /// Listen to changes on an object tree, accumulate patches
-  function _observe(observer:any, obj:any):any {
-    if (Object.observe) {
-      Object.observe(obj, observer);
-      for (var key in obj) {
-        if (obj.hasOwnProperty(key)) {
-          var v:any = obj[key];
-          if (v && typeof (v) === "object") {
-            _observe(observer, v);
-          }
-        }
-      }
-    }
-    return observer;
-  }
-
-  function _unobserve(observer:any, obj:any):any {
-    if (Object.observe) {
-      Object.unobserve(obj, observer);
-      for (var key in obj) {
-        if (obj.hasOwnProperty(key)) {
-          var v:any = obj[key];
-          if (v && typeof (v) === "object") {
-            _unobserve(observer, v);
-          }
-        }
-      }
-    }
     return observer;
   }
 
   export function generate(observer) {
-    if (Object.observe) {
-      Object.deliverChangeRecords(observer);
+    var mirror;
+    for (var i = 0, ilen = beforeDict.length; i < ilen; i++) {
+      if (beforeDict[i].obj === observer.object) {
+        mirror = beforeDict[i];
+        break;
+      }
     }
-    else {
-      var mirror;
-      for (var i = 0, ilen = beforeDict.length; i < ilen; i++) {
-        if (beforeDict[i].obj === observer.object) {
-          mirror = beforeDict[i];
-          break;
-        }
-      }
-      _generate(mirror.value, observer.object, observer.patches, "");
-      if(observer.patches.length) {
-        apply(mirror.value, observer.patches);
-      }
+    _generate(mirror.value, observer.object, observer.patches, "");
+    if(observer.patches.length) {
+      apply(mirror.value, observer.patches);
     }
     var temp = observer.patches;
     if(temp.length > 0) {
@@ -482,7 +389,7 @@ module jsonpatch {
     for (var t = oldKeys.length - 1; t >= 0; t--) {
       var key = oldKeys[t];
       var oldVal = mirror[key];
-      if (obj.hasOwnProperty(key)) {
+      if (obj.hasOwnProperty(key) && !(obj[key] === undefined && _isArray(obj) === false)) {
         var newVal = obj[key];
         if (typeof oldVal == "object" && oldVal != null && typeof newVal == "object" && newVal != null) {
           _generate(oldVal, newVal, patches, path + "/" + escapePathComponent(key));
@@ -506,7 +413,7 @@ module jsonpatch {
 
     for (var t = 0; t < newKeys.length; t++) {
       var key = newKeys[t];
-      if (!mirror.hasOwnProperty(key)) {
+      if (!mirror.hasOwnProperty(key) && obj[key] !== undefined) {
         patches.push({op: "add", path: path + "/" + escapePathComponent(key), value: deepClone(obj[key])});
       }
     }
@@ -538,9 +445,15 @@ module jsonpatch {
     return true;
   }
 
-  /// Apply a json-patch operation on an object tree
-  export function apply(tree:any, patches:any[], validate?:boolean):boolean {
-    var result = false
+  /**
+   * Apply a json-patch operation on an object tree
+   * Returns an array of results of operations.
+   * Each element can either be a boolean (if op == 'test') or
+   * the removed object (operations that remove things)
+   * or just be undefined
+   */
+  export function apply(tree:any, patches:any[], validate?:boolean):Array<any> {
+    var results = []
         , p = 0
         , plen = patches.length
         , patch
@@ -576,7 +489,7 @@ module jsonpatch {
         t++;
         if(key === undefined) { //is root
           if (t >= len) {
-            result = rootOps[patch.op].call(patch, obj, key, tree); // Apply patch
+            results.push(rootOps[patch.op].call(patch, obj, key, tree)); // Apply patch
             break;
           }
         }
@@ -594,7 +507,7 @@ module jsonpatch {
             if (validate && patch.op === "add" && key > obj.length) {
               throw new JsonPatchError("The specified index MUST NOT be greater than the number of elements in the array", "OPERATION_VALUE_OUT_OF_BOUNDS", p - 1, patch.path, patch);
             }
-            result = arrOps[patch.op].call(patch, obj, key, tree); // Apply patch
+            results.push(arrOps[patch.op].call(patch, obj, key, tree)); // Apply patch
             break;
           }
         }
@@ -602,14 +515,14 @@ module jsonpatch {
           if (key && key.indexOf('~') != -1)
             key = key.replace(/~1/g, '/').replace(/~0/g, '~'); // escape chars
           if (t >= len) {
-            result = objOps[patch.op].call(patch, obj, key, tree); // Apply patch
+            results.push(objOps[patch.op].call(patch, obj, key, tree)); // Apply patch
             break;
           }
         }
         obj = obj[key];
       }
     }
-    return result;
+    return results;
   }
 
   export function compare(tree1:any, tree2:any):any[] {
@@ -637,7 +550,7 @@ module jsonpatch {
     /**
      * Recursively checks whether an object has any undefined values inside.
      */
-    export function hasUndefined(obj:any): boolean {
+    function hasUndefined(obj:any): boolean {
         if (obj === undefined) {
             return true;
         }
