@@ -20,18 +20,16 @@
     "**/.*",
     "node_modules",
     "bower_components",
-    "test",
-    "tests",
-    "util"
+    "benchmark",
+    "test"
   ],
   "_release": "0.2.6",
   "_resolution": {
     "type": "version",
     "tag": "0.2.6",
-    "commit": "fbaedb6e284841ae5fd45f5543d94555ab021e3c"
+    "commit": "144148253abb4a771b7555fa6baf44c6aa50b6c1"
   },
-  "_source": "git://github.com/miyconst/object-observe.git",
-  "_target": "~0.2.6",
-  "_originalSource": "miyconst/object-observe",
-  "_direct": true
+  "_source": "https://github.com/MaxArt2501/object-observe.git",
+  "_target": "~0.2.4",
+  "_originalSource": "object.observe"
 }
