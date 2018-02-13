@@ -1,0 +1,41 @@
+{
+  "name": "declarative-shadow-dom",
+  "version": "0.1.0",
+  "description": "Custom Element to create Shadow DOM in a declarative manner",
+  "license": "MIT",
+  "main": "declarative-shadow-dom.html",
+  "keywords": [
+    "shadow-dom",
+    "declarative",
+    "web-components",
+    "juicy",
+    "custom-element"
+  ],
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "preview.png",
+    "package.json",
+    "Gruntfile.json"
+  ],
+  "dependencies": {
+    "webcomponentsjs": "^1.0.10",
+    "document-register-element": "^1.4.1"
+  },
+  "devDependencies": {
+    "web-component-tester": "*"
+  },
+  "homepage": "https://github.com/tomalec/declarative-shadow-dom",
+  "_release": "0.1.0",
+  "_resolution": {
+    "type": "version",
+    "tag": "0.1.0",
+    "commit": "27aa48203a679e4c27f1d5f4ecd8c5a3bb3648e8"
+  },
+  "_source": "https://github.com/tomalec/declarative-shadow-dom.git",
+  "_target": "^0.1.0",
+  "_originalSource": "declarative-shadow-dom",
+  "_direct": true
+}
