@@ -9,7 +9,8 @@
     "d3": "~3.4.12",
     "fast-json-patch": "~1.0.0",
     "highlightjs": "~8.7.0",
-    "ace-builds": "~1.2.0"
+    "ace-builds": "~1.2.0",
+    "declarative-shadow-dom": "^0.1.0"
   },
   "devDependencies": {
     "web-component-tester": "*",
