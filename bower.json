@@ -2,7 +2,7 @@
   "name": "juicy.github.io",
   "private": true,
   "dependencies": {
-    "polymer": ">=1.6.0",
+    "polymer": "~2.6.0",
     "jsoneditor": "josdejong/jsoneditor#^5.5.6",
     "github-markdown-css": "^0.2.0",
     "marked": "^0.3.5",
@@ -10,7 +10,8 @@
     "fast-json-patch": "~1.0.0",
     "highlightjs": "~8.7.0",
     "ace-builds": "~1.2.0",
-    "declarative-shadow-dom": "^0.1.0"
+    "declarative-shadow-dom": "^0.1.0",
+    "vaadin-date-picker": "vaadin/vaadin-date-picker#^2.0.7"
   },
   "devDependencies": {
     "web-component-tester": "*",
@@ -18,6 +19,7 @@
     "iron-icon": "PolymerElements/iron-icon",
     "iron-iconset-svg": "PolymerElements/iron-iconset-svg",
     "object.observe": "~0.2.4",
-    "array.observe": "~0.0.1"
+    "array.observe": "~0.0.1",
+    "vaadin-material-theme": "vaadin/vaadin-material-theme#^0.3.0"
   }
 }
