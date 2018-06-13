@@ -1,0 +1,292 @@
+<!-- juicy-highlight version: 2.0.0 | MIT License -->
+<script>
+    (function () {
+    
+            function createMask(color, opacity) {
+                const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                svg.style.pointerEvents = "none";
+                svg.style.position = "absolute";
+                svg.style.left = 0;
+                svg.style.top = 0;
+
+                const p = document.createElementNS("http://www.w3.org/2000/svg", 'path');
+                p.setAttribute("fill", color);
+                p.setAttribute("fill-opacity", opacity);
+                p.setAttribute("fill-rule", "evenodd");
+
+                svg.appendChild(p);
+
+                return svg;
+            }
+
+            function createFocusRect(strokeWidth, strokeColor, fill) {
+                const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                svg.style.pointerEvents = "none";
+                svg.style.position = "absolute";
+
+                if (fill) {
+                    svg.setAttribute("fill", fill);
+                    svg.setAttribute("fill-rule", "evenodd");
+                } else {
+                    svg.setAttribute("fill", "none");
+                }
+
+                svg.style.left = 0;
+                svg.style.top = 0;
+
+                const p = document.createElementNS("http://www.w3.org/2000/svg", 'path');
+                p.setAttribute("stroke", strokeColor);
+                p.setAttribute("stroke-width", strokeWidth + 'px');
+                svg.appendChild(p);
+                
+                return svg;
+            }
+
+            function calcMask(cw, ch, focused, strokeOffset) {
+                let mask = "M 0 0 l " + cw + " 0 l 0 " + ch + " l " + -cw + " 0 Z";
+                for (let i = 0, ilen = focused.length; i < ilen; i++) {
+                    // Clip out the window for the focused items
+                    mask += calcFocusRect(focused[i], strokeOffset);
+                }
+                return mask;
+            }
+
+            function getScreenCoordinates(obj) {
+                const rec = obj.getBoundingClientRect();
+                const doc = document.documentElement;
+                const left = (window.pageXOffset || doc.scrollLeft) - (doc.clientLeft || 0);
+                const top = (window.pageYOffset || doc.scrollTop) - (doc.clientTop || 0);
+                const p = {
+                    x: rec.left + left,
+                    y: rec.top + top
+                };
+                return p;
+            }
+
+            /**
+                * For elements that are on screen, returns path with rectangle around the element. Otherwise returns empty path
+                * @param {Element} focused HTML element
+                * @param {Number} strokeOffset Distance from element to draw the line
+                * @return {String}
+                */
+            function calcFocusRect(focused, strokeOffset) {
+                if (focused.offsetWidth) {
+                    const fw = focused.offsetWidth + strokeOffset;
+                    const fh = focused.offsetHeight + strokeOffset;
+                    const pos = getScreenCoordinates(focused);
+                    return " M " + (pos.x - strokeOffset / 2) + " " + (pos.y - strokeOffset / 2) + " l " + fw + " 0 l 0 " + fh + " l -" + fw + " 0 Z";
+                }
+                else {
+                    return " M 0 0 Z";
+                }
+            }
+
+            function drawMask(maskElement, svg, focusRect, overlay) {
+                const availableWidth = document.documentElement.scrollWidth;
+                const availableHeight = document.documentElement.scrollHeight; //document.documentElement.scrollHeight returns the dimension of the page
+                const maskSvg = calcMask(availableWidth, availableHeight, maskElement.focused, maskElement.strokeOffset);
+                let rectSvg = "";
+                const rect = focusRect.firstChild;
+                const hidden = maskElement.currentState != "shown";
+
+                if (maskElement.focused.length) {
+                    for (let i = 0, ilen = maskElement.focused.length; i < ilen; i++) {
+                        rectSvg += calcFocusRect(maskElement.focused[i], maskElement.strokeOffset);
+                    }
+                }
+                else {
+                    rectSvg = "M 0 0";
+                }
+
+                if (overlay && (hidden || maskElement.currentMaskSvg != maskSvg)) {
+                    const mask = svg.firstChild;
+
+                    mask.setAttribute("d", maskSvg);
+                    maskElement.currentMaskSvg = maskSvg;
+                }
+
+                if (hidden || maskElement.currentRectSvg != rectSvg) {
+                    rect.setAttribute("d", rectSvg);
+                    maskElement.currentRectSvg = rectSvg;
+                }
+
+                const w = availableWidth + "px";
+                const h = availableHeight + "px";
+                const els = [svg, focusRect];
+
+                for (let i = 0; i < els.length; i++) {
+                    const el = els[i];
+
+                    if (el.style.width != w) {
+                        el.style.width = w;
+                    }
+
+                    if (el.style.height != h) {
+                        el.style.height = h;
+                    }
+                }
+            }
+                
+        class JuicyHighlightElement extends HTMLElement {            
+            constructor(self) {
+                self = super(self);
+                self.overlay = false;
+                self.fill = false;
+                self.strokeWidth = 1;
+                self.strokeOffset = 1;
+                self.strokeColor = "#000000";
+                self.focused = null;
+                self.contents = [];
+                self.currentState = null;
+                self.currentMaskSvg = null;
+                self.currentRectSvg = null;
+
+                const attributes = JuicyHighlightElement.observedAttributes;
+
+                for (let i = 0; i < attributes.length; i++) {
+                    if (self.hasAttribute(attributes[i])) {
+                        self.attributeChangedCallback(attributes[i], null, self.attributes[attributes[i]].value);
+                    }
+                }
+            };
+            
+            static get observedAttributes() {
+                return ["overlay", "strokewidth", "strokeoffset", "strokecolor", "fill"]; 
+            }
+            
+            attributeChangedCallback(attrName, oldValue, newValue) {
+                let v;
+                switch (attrName) {
+                    case "overlay":
+                        newValue = this.hasAttribute("overlay");
+                        this.overlay = !!newValue;
+                        break;
+                    case "strokewidth":
+                        v = parseInt(newValue);
+                        this.strokeWidth = Number.isNaN(v) ? 1 : v;
+                        break;
+                    case "strokeoffset":
+                        v = parseInt(newValue);
+                        this.strokeOffset = Number.isNaN(v) ? 1 : v;
+                        break;
+                    case "strokecolor":
+                        this.strokeColor = newValue;
+                        break;
+                    case "fill":
+                        this.fill = newValue;
+                        break;
+                }
+            };
+
+            show(elements, getContent) {
+                if (Array.isArray(elements)) {
+                    this.focused = elements;
+                }
+                else if (elements instanceof NodeList) {
+                    this.focused = Array.from(elements); 
+                }
+                else if (elements) {
+                    this.focused = [elements];
+                }
+                else {
+                    this.focused = [];
+                }
+
+                this.generateContent(getContent);
+
+                if (!this.overlayRect) {
+                    this.overlayRect = createMask("#555555", 0.75);
+                }
+                if (!this.focusRect) {
+                    this.focusRect = createFocusRect(this.strokeWidth, this.strokeColor, this.fill);
+                }
+                if (this.overlay && !this.overlayRect.parentNode) {
+                    document.body.appendChild(this.overlayRect);
+                }
+                if (this.focusRect && !this.focusRect.parentNode) {
+                    document.body.appendChild(this.focusRect);
+                }
+                function repeat () {
+                    this.positionContent();
+                    this.drawMask();
+                    this.req = window.requestAnimationFrame(repeat.bind(this));
+                };
+
+                this.currentState = "shown";
+                repeat.call(this);
+            };
+
+            hide() {
+                this.removeContent();
+
+                if (this.overlayRect && this.overlayRect.parentNode) {
+                    document.body.removeChild(this.overlayRect);
+                }
+                if (this.focusRect && this.focusRect.parentNode) {
+                    document.body.removeChild(this.focusRect);
+                }
+                window.cancelAnimationFrame(this.req);
+                this.currentState = "hidden";
+            };
+
+            drawMask() {
+                drawMask(this, this.overlayRect, this.focusRect, this.overlay);
+            };
+
+            positionContent() {
+                for (let i = 0; i < this.contents.length; i++) {
+                    const div = this.contents[i];
+                    const el = div.element;
+                    const rec = getScreenCoordinates(el);
+
+                    div.style.left = rec.x + "px";
+                    div.style.top = rec.y + "px";
+                }
+            };
+
+            removeContent() {
+                for (let i = 0; i < this.contents.length; i++) {
+                    const el = this.contents[i];
+
+                    el.parentNode.removeChild(el);
+                }
+
+                this.contents.splice(0, this.contents.length);
+            };
+
+            generateContent(getContent) {
+                this.removeContent();
+
+                if (!getContent) {
+                    return;
+                }
+
+                const body = document.querySelector("body");
+
+                for (let i = 0; i < this.focused.length; i++) {
+                    const el = this.focused[i];
+                    const c = getContent(el);
+
+                    if (c) {
+                        const div = document.createElement("div");
+
+                        div.innerHTML = c;
+                        div.style.position = "absolute";
+                        div.element = el;
+                        body.appendChild(div);
+                        this.contents.push(div);
+                    }
+                }
+
+                this.positionContent();
+            };
+
+            disconnectedCallback() {
+                this.hide();
+            };
+        }
+        
+        customElements.define('juicy-highlight', JuicyHighlightElement);
+
+    })();
+</script>

@@ -42,6 +42,23 @@ exports.sanitize = function (jsString) {
     jsString = match[3];
   }
 
+  var controlChars = {
+    '\b': '\\b',
+    '\f': '\\f',
+    '\n': '\\n',
+    '\r': '\\r',
+    '\t': '\\t'
+  };
+
+  var quote = '\'';
+  var quoteDbl = '"';
+  var quoteLeft = '\u2018';
+  var quoteRight = '\u2019';
+  var quoteDblLeft = '\u201C';
+  var quoteDblRight = '\u201D';
+  var graveAccent = '\u0060';
+  var acuteAccent = '\u00B4';
+
   // helper functions to get the current/prev/next character
   function curr () { return jsString.charAt(i);     }
   function next()  { return jsString.charAt(i + 1); }
@@ -80,32 +97,37 @@ exports.sanitize = function (jsString) {
   }
 
   // parse single or double quoted string
-  function parseString(quote) {
+  function parseString(endQuote) {
     chars.push('"');
     i++;
     var c = curr();
-    while (i < jsString.length && c !== quote) {
+    while (i < jsString.length && c !== endQuote) {
       if (c === '"' && prev() !== '\\') {
         // unescaped double quote, escape it
-        chars.push('\\');
+        chars.push('\\"');
       }
-
-      // handle escape character
-      if (c === '\\') {
+      else if (controlChars.hasOwnProperty(c)) {
+        // replace unescaped control characters with escaped ones
+        chars.push(controlChars[c])
+      }
+      else if (c === '\\') {
+        // remove the escape character when followed by a single quote ', not needed
         i++;
         c = curr();
-
-        // remove the escape character when followed by a single quote ', not needed
         if (c !== '\'') {
           chars.push('\\');
         }
+        chars.push(c);
       }
-      chars.push(c);
+      else {
+        // regular character
+        chars.push(c);
+      }
 
       i++;
       c = curr();
     }
-    if (c === quote) {
+    if (c === endQuote) {
       chars.push('"');
       i++;
     }
@@ -141,8 +163,25 @@ exports.sanitize = function (jsString) {
     else if (c === '/' && next() === '/') {
       skipComment();
     }
-    else if (c === '\'' || c === '"') {
-      parseString(c);
+    else if (c === '\u00A0' || (c >= '\u2000' && c <= '\u200A') || c === '\u202F' || c === '\u205F' || c === '\u3000') {
+      // special white spaces (like non breaking space)
+      chars.push(' ')
+      i++
+    }
+    else if (c === quote) {
+      parseString(quote);
+    }
+    else if (c === quoteDbl) {
+      parseString(quoteDbl);
+    }
+    else if (c === graveAccent) {
+      parseString(acuteAccent);
+    }
+    else if (c === quoteLeft) {
+      parseString(quoteRight);
+    }
+    else if (c === quoteDblLeft) {
+      parseString(quoteDblRight);
     }
     else if (/[a-zA-Z_$]/.test(c) && ['{', ','].indexOf(lastNonWhitespace()) !== -1) {
       // an unquoted object key (like a in '{a:2}')
@@ -661,6 +700,12 @@ exports.parsePath = function parsePath(jsonPath) {
     }
 
     var value = jsonPath.substring(1, end);
+    if (value[0] === '\'') {
+      // ajv produces string prop names with single quotes, so we need
+      // to reformat them into valid double-quoted JSON strings
+      value = '\"' + value.substring(1, value.length - 1) + '\"';
+    }
+
     prop = value === '*' ? value : JSON.parse(value); // parse string and number
     remainder = jsonPath.substr(end + 1);
   }
@@ -770,3 +815,139 @@ exports.textDiff = function textDiff(oldText, newText) {
 
   return {start: start, end: newEnd};
 };
+
+
+/**
+ * Return an object with the selection range or cursor position (if both have the same value)
+ * Support also old browsers (IE8-)
+ * Source: http://ourcodeworld.com/articles/read/282/how-to-get-the-current-cursor-position-and-selection-within-a-text-input-or-textarea-in-javascript
+ * @param {DOMElement} el A dom element of a textarea or input text.
+ * @return {Object} reference Object with 2 properties (start and end) with the identifier of the location of the cursor and selected text.
+ **/
+exports.getInputSelection = function(el) {
+  var startIndex = 0, endIndex = 0, normalizedValue, range, textInputRange, len, endRange;
+
+  if (typeof el.selectionStart == "number" && typeof el.selectionEnd == "number") {
+      startIndex = el.selectionStart;
+      endIndex = el.selectionEnd;
+  } else {
+      range = document.selection.createRange();
+
+      if (range && range.parentElement() == el) {
+          len = el.value.length;
+          normalizedValue = el.value.replace(/\r\n/g, "\n");
+
+          // Create a working TextRange that lives only in the input
+          textInputRange = el.createTextRange();
+          textInputRange.moveToBookmark(range.getBookmark());
+
+          // Check if the startIndex and endIndex of the selection are at the very end
+          // of the input, since moveStart/moveEnd doesn't return what we want
+          // in those cases
+          endRange = el.createTextRange();
+          endRange.collapse(false);
+
+          if (textInputRange.compareEndPoints("StartToEnd", endRange) > -1) {
+              startIndex = endIndex = len;
+          } else {
+              startIndex = -textInputRange.moveStart("character", -len);
+              startIndex += normalizedValue.slice(0, startIndex).split("\n").length - 1;
+
+              if (textInputRange.compareEndPoints("EndToEnd", endRange) > -1) {
+                  endIndex = len;
+              } else {
+                  endIndex = -textInputRange.moveEnd("character", -len);
+                  endIndex += normalizedValue.slice(0, endIndex).split("\n").length - 1;
+              }
+          }
+      }
+  }
+
+  return {
+      startIndex: startIndex,
+      endIndex: endIndex,
+      start: _positionForIndex(startIndex),
+      end: _positionForIndex(endIndex)
+  };
+
+  /**
+   * Returns textarea row and column position for certain index
+   * @param {Number} index text index
+   * @returns {{row: Number, col: Number}}
+   */
+  function _positionForIndex(index) {
+    var textTillIndex = el.value.substring(0,index);
+    var row = (textTillIndex.match(/\n/g) || []).length + 1;
+    var col = textTillIndex.length - textTillIndex.lastIndexOf("\n");
+
+    return {
+      row: row,
+      column: col
+    }
+  }
+}
+
+/**
+ * Returns the index for certaion position in text element
+ * @param {DOMElement} el A dom element of a textarea or input text.
+ * @param {Number} row row value, > 0, if exceeds rows number - last row will be returned
+ * @param {Number} column column value, > 0, if exceeds column length - end of column will be returned
+ * @returns {Number} index of position in text, -1 if not found
+ */
+exports.getIndexForPosition = function(el, row, column) {
+  var text = el.value || '';
+  if (row > 0 && column > 0) {
+    var rows = text.split('\n', row);
+    row = Math.min(rows.length, row);
+    column = Math.min(rows[row - 1].length, column - 1);
+    var columnCount = (row == 1 ? column : column + 1); // count new line on multiple rows
+    return rows.slice(0, row - 1).join('\n').length + columnCount;
+  }
+  return -1;
+}
+
+
+if (typeof Element !== 'undefined') {
+  // Polyfill for array remove
+  (function () {
+    function polyfill (item) {
+      if (item.hasOwnProperty('remove')) {
+        return;
+      }
+      Object.defineProperty(item, 'remove', {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: function remove() {
+          if (this.parentNode != null)
+            this.parentNode.removeChild(this);
+        }
+      });
+    }
+
+    if (typeof Element !== 'undefined')       { polyfill(Element.prototype); }
+    if (typeof CharacterData !== 'undefined') { polyfill(CharacterData.prototype); }
+    if (typeof DocumentType !== 'undefined')  { polyfill(DocumentType.prototype); }
+  })();
+}
+
+
+// Polyfill for startsWith
+if (!String.prototype.startsWith) {
+    String.prototype.startsWith = function (searchString, position) {
+        position = position || 0;
+        return this.substr(position, searchString.length) === searchString;
+    };
+}
+
+// Polyfill for Array.find
+if (!Array.prototype.find) {
+  Array.prototype.find = function(callback) {    
+    for (var i = 0; i < this.length; i++) {
+      var element = this[i];
+      if ( callback.call(this, element, i, this) ) {
+        return element;
+      }
+    }
+  }
+}

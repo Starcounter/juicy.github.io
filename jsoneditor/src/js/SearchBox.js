@@ -52,12 +52,14 @@ function SearchBox (editor, container) {
   tbodySearch.appendChild(tr);
 
   var refreshSearch = document.createElement('button');
+  refreshSearch.type = 'button';
   refreshSearch.className = 'jsoneditor-refresh';
   td = document.createElement('td');
   td.appendChild(refreshSearch);
   tr.appendChild(td);
 
   var search = document.createElement('input');
+  // search.type = 'button';
   this.dom.search = search;
   search.oninput = function (event) {
     searchBox._onDelayedSearch(event);
@@ -81,6 +83,7 @@ function SearchBox (editor, container) {
   tr.appendChild(td);
 
   var searchNext = document.createElement('button');
+  searchNext.type = 'button';
   searchNext.title = 'Next result (Enter)';
   searchNext.className = 'jsoneditor-next';
   searchNext.onclick = function () {
@@ -91,6 +94,7 @@ function SearchBox (editor, container) {
   tr.appendChild(td);
 
   var searchPrevious = document.createElement('button');
+  searchPrevious.type = 'button';
   searchPrevious.title = 'Previous result (Shift+Enter)';
   searchPrevious.className = 'jsoneditor-previous';
   searchPrevious.onclick = function () {
@@ -222,19 +226,30 @@ SearchBox.prototype._onSearch = function (forceSearch) {
 
   var value = this.dom.search.value;
   var text = (value.length > 0) ? value : undefined;
-  if (text != this.lastText || forceSearch) {
+  if (text !== this.lastText || forceSearch) {
     // only search again when changed
     this.lastText = text;
     this.results = this.editor.search(text);
-    this._setActiveResult(undefined);
+    var MAX_SEARCH_RESULTS = this.results[0]
+        ? this.results[0].node.MAX_SEARCH_RESULTS
+        : Infinity;
+
+    this._setActiveResult(0, false);
 
     // display search results
-    if (text != undefined) {
+    if (text !== undefined) {
       var resultCount = this.results.length;
-      switch (resultCount) {
-        case 0: this.dom.results.innerHTML = 'no&nbsp;results'; break;
-        case 1: this.dom.results.innerHTML = '1&nbsp;result'; break;
-        default: this.dom.results.innerHTML = resultCount + '&nbsp;results'; break;
+      if (resultCount === 0) {
+        this.dom.results.innerHTML = 'no&nbsp;results';
+      }
+      else if (resultCount === 1) {
+        this.dom.results.innerHTML = '1&nbsp;result';
+      }
+      else if (resultCount > MAX_SEARCH_RESULTS) {
+        this.dom.results.innerHTML = MAX_SEARCH_RESULTS + '+&nbsp;results';
+      }
+      else {
+        this.dom.results.innerHTML = resultCount + '&nbsp;results';
       }
     }
     else {

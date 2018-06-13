@@ -29,8 +29,7 @@
     "tag": "0.0.1",
     "commit": "6d6c8d8913c28506dca157f9abed3ffa1dbddd18"
   },
-  "_source": "git://github.com/MaxArt2501/array-observe.git",
+  "_source": "https://github.com/MaxArt2501/array-observe.git",
   "_target": "~0.0.1",
-  "_originalSource": "array.observe",
-  "_direct": true
+  "_originalSource": "array.observe"
 }

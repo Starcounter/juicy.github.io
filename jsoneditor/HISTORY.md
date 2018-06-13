@@ -3,6 +3,240 @@
 https://github.com/josdejong/jsoneditor
 
 
+## 2018-06-03, version 5.17.1
+
+- Fixed a bug in a translation text.
+
+
+## 2018-06-03, version 5.17.0
+
+- Implemented advanced sorting for arrays.
+
+
+## 2018-05-23, version 5.16.0
+
+- Better handling of JSON documents containing large arrays:
+  - Only displays the first 100 items of large arrays,
+    with buttons "show more" and "show all" to render more items.
+  - Search results are now limited to max 1000 matches,
+    and search does no longer expand the paths to all matches
+    but only expands the path of the current search result.
+- Fixed index numbers of Array items not being updated after sorting.
+
+
+## 2018-05-02, version 5.15.0
+
+- Implemented selection API: `onSelectionChanged`, `onTextSelectionChanged`,
+  `getSelection`, `getTextSelection`, `setSelection`, `setTextSelection`,
+  and `getNodesByRange`. Thanks @meirotstein.
+
+
+## 2018-03-21, version 5.14.1
+
+- Fixed absolute path of css image `jsoneditor-icons.svg`, which could.
+  give issues with webpack plugin "file-loader". Thanks @landru29.
+
+
+## 2018-02-25, version 5.14.0
+
+- Implemented support for translations. Thanks @mariohmol.
+- Fixed a bug sometimes occurring when dragging items from array to
+  object, see #509. Thanks @43081j.
+- Fixed autocomplete not accepting returned `null` values, see #512.
+  Thanks @43081j.
+- Fixed memory inefficiency when working with large JSON Schema's
+  generating many errors. Thanks @43081j.
+
+
+## 2018-02-07, version 5.13.3
+
+- Fixed a positioning issue with JSON Schema errors in text/code mode.
+
+
+## 2018-01-18, version 5.13.2
+
+- Fixed view mode opening links in a new tab instead of current tab
+  when Ctrl key is not down. Thanks @LEW21.
+- Fixed #502: code editor not showing a monospaced font some cases.
+
+
+## 2017-12-28, version 5.13.1
+
+- Fixed another occurrence of #494: properties not escaped in the
+  navigation bar.
+
+
+## 2017-12-28, version 5.13.0
+
+- Implemented cursor position in text mode. Thanks @meirotstein.
+- Fixed #494: properties not escaped in the navigation bar.
+  Thanks @meirotstein.
+
+
+## 2017-12-18, version 5.12.0
+
+- Implemented #482: Include `caseSensitive` option for autocomplete.
+  Thanks @israelito3000.
+- Upgraded dependencies
+  - `ajv@5.5.2`
+
+
+## 2017-11-22, version 5.11.0
+
+- Upgraded dependencies
+  - `ajv@5.4.0`
+  - `brace@0.11.0`
+- Fixed dropdown for JSON Schema enums when defined inside pattern
+  properties. Thanks @alquist.
+- Fixed code containing a non UTF-8 character. Thanks @alshakero.
+
+
+## 2017-11-15, version 5.10.1
+
+- Some styling tweaks in the navigation bar and status bar.
+- Don't display status bar in `text` mode (which doesn't yet support
+  row and col counts).
+
+
+## 2017-11-15, version 5.10.0
+
+- Implemented a navigation bar showing the path. Thanks @meirotstein.
+- Implemented a status bar showing cursor location.
+  Thanks @meirotstein.
+- Implemented repairing JSON objects containing left and right single
+  and double quotes (which you get when typing a JSON object in Word)
+  in `text` and `code` mode.
+- Implemented repairing JSON objects containing special white space
+  characters like non-breaking space.
+- Upgraded dependency `ajv` to version `5.3.0`.
+- Fixed #481: A polyfill required `DocumentType` which is not defined
+  in all environments.
+
+
+## 2017-09-16, version 5.9.6
+
+- Fixed displaying a dropdown for enums inside composite schemas.
+  Thanks @hachichaud.
+- Fixed #461: Urls opening twice on Firefox and Safari.
+
+
+## 2017-08-26, version 5.9.5
+
+- Fixed a regression introduced in `v5.9.4`: after using the context
+  menu once, it was not possible to set focus to an other input field
+  anymore.
+
+
+## 2017-08-20, version 5.9.4
+
+- Fixed #447: context menus not working in Shadow DOM. Thanks @tomalec.
+
+
+## 2017-07-24, version 5.9.3
+
+- Fixed broken multi-selection (regression).
+
+
+## 2017-07-13, version 5.9.2
+
+- Fixed a bug in the JSON sanitizer.
+
+
+## 2017-07-13, version 5.9.1
+
+- `setText` method of tree mode now automatically sanitizes JSON input
+  when needed.
+- Fixed #430: automatically fix unescaped control characters in
+  JSON input.
+
+
+## 2017-07-10, version 5.9.0
+
+- Implemented support for JSON schema references `$ref`, see #302.
+  Thanks @meirotstein.
+- Fixed #429: JSONEditor no longer accepting an empty array for option
+  `modes`. Thanks @trystan2k.
+- Fixed JSONEditor picking the first entry of `modes` as initial mode
+  instead of option `mode`.
+
+
+## 2017-07-08, version 5.8.2
+
+- Select first option from `modes` instead of `tree` when `mode` is not
+  configured. Thanks @bag-man.
+- Some fixes and improvements in the API of autocompletion.
+  Thanks @israelito3000.
+
+
+## 2017-07-03, version 5.8.1
+
+- Fixed broken minified bundles in folder `dist` (again...).
+
+
+## 2017-07-02, version 5.8.0
+
+- Implemented support for autocompletion. Thanks @israelito3000.
+
+
+## 2017-06-27, version 5.7.2
+
+- Fixed broken minified bundles in folder `dist`
+  (reverted to `uglify-js@2.8.22` for now).
+
+
+## 2017-06-25, version 5.7.1
+
+- Upgraded dependency `ajv` to version `5.2.0`. Resolves warnings in
+  Webpack build processes.
+
+
+## 2017-05-26, version 5.7.0
+
+- Implemented support for template items. Thanks @israelito3000.
+- Upgraded dependencies to the latest versions. Thanks @andreykaipov.
+
+
+## 2017-04-15, version 5.6.0
+
+- Implemented readonly option for modes `text` and `code.`
+  Thanks @walkerrandolphsmith.
+- Upgraded dependencies (`brance` and `ajv`) to the latest versions.
+- Fixed not being able to move focus to enum select box when clicking
+  a JSON Schema warning.
+- Fixed #309: already loaded version of Ace being overwritten by the
+  embedded version of JSONEditor.
+- Fixed #368: Mode selection drop down not fully visible on small screen.
+- Fixed #253: Optimize the input experience of Chinese IME.
+  Thanks @chinesedfan.
+
+
+## 2017-01-06, version 5.5.11
+
+- Fixed embedded version of jsoneditor ace theme not being loaded in
+  minimalist version (see #55).
+- Fixed a styling issue in the SearchBox of Ace editor (mode `code`).
+- Fixed #347: CSS more robust against global settings of div position.
+- Added docs and example on how to use a custom version of Ace editor.
+
+
+## 2016-11-02, version 5.5.10
+
+- Fixed #85: pressing enter in an input in a form containing a JSONEditor too
+  breaks submitting the form.
+
+
+## 2016-10-17, version 5.5.9
+
+- Fixed #329: Editor showing duplicate key warnings for keys defined on the
+  Object prototype, like `toString` and `watch`.
+
+
+## 2016-09-27, version 5.5.8
+
+- Fixed #314: JSON schema validation throwing an error "Unexpected token ' in
+  JSON at position 0" in specific cases. Thanks @apostrophest
+
+
 ## 2016-08-17, version 5.5.7
 
 - Fixed #308: wrong positioning of label "empty array" when `onEditable`
@@ -455,7 +689,7 @@ https://github.com/josdejong/jsoneditor
 
 ## 2012-08-12, version 1.2.0
 
-- New: Added search functionality. Search results are expanded and highlighed.
+- New: Added search functionality. Search results are expanded and highlighted.
   Quickkeys in the search box: Enter (next), Shift+Enter (previous), Ctrl+Enter
   (search again).
 - New: The position of the vertical separator between left and right panel is
@@ -502,7 +736,7 @@ https://github.com/josdejong/jsoneditor
 ## 2012-03-01, version 0.9.10
 
 - Nicer looking select box for the field types, with icons.
-- Improved drag and drop: better visualized, and now working in all browers.
+- Improved drag and drop: better visualized, and now working in all browsers.
 - Previous values will be restored after changing the type of a field. When
   changing the type back, the previous value or childs will be restored.
 - When hovering buttons (fieldtype, duplicate, delete, add) or when dragging
@@ -535,7 +769,7 @@ https://github.com/josdejong/jsoneditor
 
 ## 2012-01-09, version 0.9.7
 
-- Added functionallity to expand/collapse a node and all its childs. Click
+- Added functionality to expand/collapse a node and all its childs. Click
   the expand button of a node while holding Ctrl down.
 - Small interface improvements
 
