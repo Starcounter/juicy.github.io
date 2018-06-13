@@ -52,14 +52,14 @@
   "resolutions": {
     "webcomponentsjs": "^1.0.0"
   },
-  "homepage": "https://github.com/polymerelements/iron-iconset-svg",
+  "homepage": "https://github.com/PolymerElements/iron-iconset-svg",
   "_release": "2.2.1",
   "_resolution": {
     "type": "version",
     "tag": "v2.2.1",
     "commit": "65b04ec3aaeb46efa11be109aa41ea0c6d327a32"
   },
-  "_source": "https://github.com/polymerelements/iron-iconset-svg.git",
+  "_source": "https://github.com/PolymerElements/iron-iconset-svg.git",
   "_target": "^2.1.0",
   "_originalSource": "polymerelements/iron-iconset-svg"
 }

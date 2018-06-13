@@ -24,12 +24,12 @@
     "examples"
   ],
   "homepage": "https://github.com/WebReflection/document-register-element",
-  "version": "1.7.2",
-  "_release": "1.7.2",
+  "version": "1.9.1",
+  "_release": "1.9.1",
   "_resolution": {
     "type": "version",
-    "tag": "v1.7.2",
-    "commit": "57f3cc630245b7835079afcacf21bbf3ab379999"
+    "tag": "v1.9.1",
+    "commit": "1e221e7138f39c64b2c27fe1eef5504fa9258a5b"
   },
   "_source": "https://github.com/WebReflection/document-register-element.git",
   "_target": "^1.4.1",

@@ -1,13 +1,6 @@
 'use strict';
 
-var ace;
-try {
-  ace = require('./ace');
-}
-catch (err) {
-  // failed to load ace, no problem, we will fall back to plain text
-}
-
+var ace = require('./ace');
 var ModeSwitcher = require('./ModeSwitcher');
 var util = require('./util');
 
@@ -15,6 +8,8 @@ var util = require('./util');
 var textmode = {};
 
 var MAX_ERRORS = 3; // maximum number of displayed errors at the bottom
+
+var DEFAULT_THEME = 'ace/theme/jsoneditor';
 
 /**
  * Create a text editor
@@ -29,16 +24,25 @@ var MAX_ERRORS = 3; // maximum number of displayed errors at the bottom
  *                                                       triggered on change
  *                             {function} onModeChange   Callback method
  *                                                       triggered after setMode
+ *                             {function} onEditable     Determine if textarea is readOnly
+ *                                                       readOnly defaults true
  *                             {Object} ace              A custom instance of
  *                                                       Ace editor.
  *                             {boolean} escapeUnicode   If true, unicode
  *                                                       characters are escaped.
  *                                                       false by default.
+ *                             {function} onTextSelectionChange Callback method, 
+ *                                                              triggered on text selection change
  * @private
  */
 textmode.create = function (container, options) {
   // read options
   options = options || {};
+  
+  if(typeof options.statusBar === 'undefined') {
+    options.statusBar = true;
+  }
+
   this.options = options;
 
   // indentation
@@ -51,6 +55,7 @@ textmode.create = function (container, options) {
 
   // grab ace from options if provided
   var _ace = options.ace ? options.ace : ace;
+  // TODO: make the option options.ace deprecated, it's not needed anymore (see #309)
 
   // determine mode
   this.mode = (options.mode == 'code') ? 'code' : 'text';
@@ -63,7 +68,19 @@ textmode.create = function (container, options) {
   }
 
   // determine theme
-  this.theme = options.theme || 'ace/theme/jsoneditor';
+  this.theme = options.theme || DEFAULT_THEME;
+  if (this.theme === DEFAULT_THEME && _ace) {
+    try {
+      require('./ace/theme-jsoneditor');
+    }
+    catch (err) {
+      console.error(err);
+    }
+  }
+
+  if (options.onTextSelectionChange) {
+    this.onTextSelectionChange(options.onTextSelectionChange);
+  }
 
   var me = this;
   this.container = container;
@@ -87,7 +104,7 @@ textmode.create = function (container, options) {
   this.frame.onkeydown = function (event) {
     me._onKeyDown(event);
   };
-
+  
   // create menu
   this.menu = document.createElement('div');
   this.menu.className = 'jsoneditor-menu';
@@ -95,6 +112,7 @@ textmode.create = function (container, options) {
 
   // create format button
   var buttonFormat = document.createElement('button');
+  buttonFormat.type = 'button';
   buttonFormat.className = 'jsoneditor-format';
   buttonFormat.title = 'Format JSON data, with proper indentation and line feeds (Ctrl+\\)';
   this.menu.appendChild(buttonFormat);
@@ -110,12 +128,29 @@ textmode.create = function (container, options) {
 
   // create compact button
   var buttonCompact = document.createElement('button');
+  buttonCompact.type = 'button';
   buttonCompact.className = 'jsoneditor-compact';
   buttonCompact.title = 'Compact JSON data, remove all whitespaces (Ctrl+Shift+\\)';
   this.menu.appendChild(buttonCompact);
   buttonCompact.onclick = function () {
     try {
       me.compact();
+      me._onChange();
+    }
+    catch (err) {
+      me._onError(err);
+    }
+  };
+
+  // create repair button
+  var buttonRepair = document.createElement('button');
+  buttonRepair.type = 'button';
+  buttonRepair.className = 'jsoneditor-repair';
+  buttonRepair.title = 'Repair JSON: fix quotes and escape characters, remove comments and JSONP notation, turn JavaScript objects into JSON.';
+  this.menu.appendChild(buttonRepair);
+  buttonRepair.onclick = function () {
+    try {
+      me.repair();
       me._onChange();
     }
     catch (err) {
@@ -132,6 +167,11 @@ textmode.create = function (container, options) {
     });
   }
 
+  var emptyNode = {};
+  var isReadOnly = (this.options.onEditable
+  && typeof(this.options.onEditable === 'function')
+  && !this.options.onEditable(emptyNode));
+
   this.content = document.createElement('div');
   this.content.className = 'jsoneditor-outer';
   this.frame.appendChild(this.content);
@@ -147,6 +187,7 @@ textmode.create = function (container, options) {
     var aceEditor = _ace.edit(this.editorDom);
     aceEditor.$blockScrolling = Infinity;
     aceEditor.setTheme(this.theme);
+    aceEditor.setOptions({ readOnly: isReadOnly });
     aceEditor.setShowPrintMargin(false);
     aceEditor.setFontSize(13);
     aceEditor.getSession().setMode('ace/mode/json');
@@ -186,6 +227,7 @@ textmode.create = function (container, options) {
 
     // register onchange event
     aceEditor.on('change', this._onChange.bind(this));
+    aceEditor.on('changeSelection', this._onSelect.bind(this));
   }
   else {
     // load a plain text textarea
@@ -194,6 +236,7 @@ textmode.create = function (container, options) {
     textarea.spellcheck = false;
     this.content.appendChild(textarea);
     this.textarea = textarea;
+    this.textarea.readOnly = isReadOnly;
 
     // register onchange event
     if (this.textarea.oninput === null) {
@@ -203,9 +246,69 @@ textmode.create = function (container, options) {
       // oninput is undefined. For IE8-
       this.textarea.onchange = this._onChange.bind(this);
     }
+
+    textarea.onselect = this._onSelect.bind(this);
+    textarea.onmousedown = this._onMouseDown.bind(this);
+    textarea.onblur = this._onBlur.bind(this);
   }
 
-  this.setSchema(this.options.schema);
+  var validationErrorsContainer = document.createElement('div');
+  validationErrorsContainer.className = 'validation-errors-container';
+  this.dom.validationErrorsContainer = validationErrorsContainer;
+  this.frame.appendChild(validationErrorsContainer);
+
+  if (options.statusBar) {
+    util.addClassName(this.content, 'has-status-bar');
+
+    this.curserInfoElements = {};
+    var statusBar = document.createElement('div');
+    this.dom.statusBar = statusBar;
+    statusBar.className = 'jsoneditor-statusbar';
+    this.frame.appendChild(statusBar);
+
+    var lnLabel = document.createElement('span');
+    lnLabel.className = 'jsoneditor-curserinfo-label';
+    lnLabel.innerText = 'Ln:';
+
+    var lnVal = document.createElement('span');
+    lnVal.className = 'jsoneditor-curserinfo-val';
+    lnVal.innerText = '1';
+
+    statusBar.appendChild(lnLabel);
+    statusBar.appendChild(lnVal);
+
+    var colLabel = document.createElement('span');
+    colLabel.className = 'jsoneditor-curserinfo-label';
+    colLabel.innerText = 'Col:';
+
+    var colVal = document.createElement('span');
+    colVal.className = 'jsoneditor-curserinfo-val';
+    colVal.innerText = '1';
+
+    statusBar.appendChild(colLabel);
+    statusBar.appendChild(colVal);
+
+    this.curserInfoElements.colVal = colVal;
+    this.curserInfoElements.lnVal = lnVal;
+
+    var countLabel = document.createElement('span');
+    countLabel.className = 'jsoneditor-curserinfo-label';
+    countLabel.innerText = 'characters selected';
+    countLabel.style.display = 'none';
+
+    var countVal = document.createElement('span');
+    countVal.className = 'jsoneditor-curserinfo-count';
+    countVal.innerText = '0';
+    countVal.style.display = 'none';
+
+    this.curserInfoElements.countLabel = countLabel;
+    this.curserInfoElements.countVal = countVal;
+
+    statusBar.appendChild(countVal);
+    statusBar.appendChild(countLabel);
+  }
+
+  this.setSchema(this.options.schema, this.options.schemaRefs);  
 };
 
 /**
@@ -227,6 +330,16 @@ textmode._onChange = function () {
       console.error('Error in onChange callback: ', err);
     }
   }
+};
+
+/**
+ * Handle text selection
+ * Calculates the cursor position and selection range and updates menu
+ * @private
+ */
+textmode._onSelect = function () {
+  this._updateCursorInfo();
+  this._emitSelectionChange();
 };
 
 /**
@@ -254,7 +367,106 @@ textmode._onKeyDown = function (event) {
     event.preventDefault();
     event.stopPropagation();
   }
+
+  this._updateCursorInfo();
+  this._emitSelectionChange();
 };
+
+/**
+ * Event handler for mousedown.
+ * @param {Event} event
+ * @private
+ */
+textmode._onMouseDown = function (event) {
+  this._updateCursorInfo();
+  this._emitSelectionChange();
+};
+
+/**
+ * Event handler for blur.
+ * @param {Event} event
+ * @private
+ */
+textmode._onBlur = function (event) {
+  this._updateCursorInfo();
+  this._emitSelectionChange();
+};
+
+/**
+ * Update the cursor info and the status bar, if presented
+ */
+textmode._updateCursorInfo = function () {
+  var me = this;
+  var line, col, count;
+
+  if (this.textarea) {
+    setTimeout(function() { //this to verify we get the most updated textarea cursor selection
+      var selectionRange = util.getInputSelection(me.textarea);
+      
+      if (selectionRange.startIndex !== selectionRange.endIndex) {
+        count = selectionRange.endIndex - selectionRange.startIndex;
+      }
+      
+      if (count && me.cursorInfo && me.cursorInfo.line === selectionRange.end.row && me.cursorInfo.column === selectionRange.end.column) {
+        line = selectionRange.start.row;
+        col = selectionRange.start.column;
+      } else {
+        line = selectionRange.end.row;
+        col = selectionRange.end.column;
+      }
+      
+      me.cursorInfo = {
+        line: line,
+        column: col,
+        count: count
+      }
+
+      if(me.options.statusBar) {
+        updateDisplay();
+      }
+    },0);
+    
+  } else if (this.aceEditor && this.curserInfoElements) {
+    var curserPos = this.aceEditor.getCursorPosition();
+    var selectedText = this.aceEditor.getSelectedText();
+
+    line = curserPos.row + 1;
+    col = curserPos.column + 1;
+    count = selectedText.length;
+
+    me.cursorInfo = {
+      line: line,
+      column: col,
+      count: count
+    }
+
+    if(this.options.statusBar) {
+      updateDisplay();
+    }
+  }
+
+  function updateDisplay() {
+
+    if (me.curserInfoElements.countVal.innerText !== count) {
+      me.curserInfoElements.countVal.innerText = count;
+      me.curserInfoElements.countVal.style.display = count ? 'inline' : 'none';
+      me.curserInfoElements.countLabel.style.display = count ? 'inline' : 'none';
+    }
+    me.curserInfoElements.lnVal.innerText = line;
+    me.curserInfoElements.colVal.innerText = col;
+  }
+};
+
+/**
+ * emits selection change callback, if given
+ * @private
+ */
+textmode._emitSelectionChange = function () {
+  if(this._selectionChangedHandler) {
+    var currentSelection = this.getTextSelection();
+    this._selectionChangedHandler(currentSelection.start, currentSelection.end, currentSelection.text);
+  }
+}
 
 /**
  * Destroy the editor. Clean up DOM, event listeners, and web workers.
@@ -281,7 +493,7 @@ textmode.destroy = function () {
 };
 
 /**
- * Compact the code in the formatter
+ * Compact the code in the text editor
  */
 textmode.compact = function () {
   var json = this.get();
@@ -290,12 +502,21 @@ textmode.compact = function () {
 };
 
 /**
- * Format the code in the formatter
+ * Format the code in the text editor
  */
 textmode.format = function () {
   var json = this.get();
   var text = JSON.stringify(json, null, this.indentation);
   this.setText(text);
+};
+
+/**
+ * Repair the code in the text editor
+ */
+textmode.repair = function () {
+  var text = this.getText();
+  var sanitizedText = util.sanitize(text);
+  this.setText(sanitizedText);
 };
 
 /**
@@ -390,7 +611,6 @@ textmode.setText = function(jsonText) {
 
     this.options.onChange = originalOnChange;
   }
-
   // validate JSON schema
   this.validate();
 };
@@ -430,7 +650,7 @@ textmode.validate = function () {
     }
   }
 
-  if (errors.length > 0) {
+  if (errors.length > 0) {  
     // limit the number of displayed errors
     var limit = errors.length > MAX_ERRORS;
     if (limit) {
@@ -458,9 +678,10 @@ textmode.validate = function () {
         '</table>';
 
     this.dom.validationErrors = validationErrors;
-    this.frame.appendChild(validationErrors);
+    this.dom.validationErrorsContainer.appendChild(validationErrors);
 
-    var height = validationErrors.clientHeight;
+    var height = validationErrors.clientHeight +
+        (this.dom.statusBar ? this.dom.statusBar.clientHeight : 0);
     this.content.style.marginBottom = (-height) + 'px';
     this.content.style.paddingBottom = height + 'px';
   }
@@ -469,6 +690,112 @@ textmode.validate = function () {
   if (this.aceEditor) {
     var force = false;
     this.aceEditor.resize(force);
+  }
+};
+
+/**
+ * Get the selection details
+ * @returns {{start:{row:Number, column:Number},end:{row:Number, column:Number},text:String}}
+ */
+textmode.getTextSelection = function () {
+  var selection = {};
+  if (this.textarea) {
+    var selectionRange = util.getInputSelection(this.textarea);
+
+    if (this.cursorInfo && this.cursorInfo.line === selectionRange.end.row && this.cursorInfo.column === selectionRange.end.column) {
+      //selection direction is bottom => up
+      selection.start = selectionRange.end;
+      selection.end = selectionRange.start;
+    } else {
+      selection = selectionRange;
+    }
+
+    return {
+      start: selection.start,
+      end: selection.end,
+      text: this.textarea.value.substring(selectionRange.startIndex, selectionRange.endIndex)
+    }
+  }
+
+  if (this.aceEditor) {
+    var aceSelection = this.aceEditor.getSelection();
+    var selectedText = this.aceEditor.getSelectedText();
+    var range = aceSelection.getRange();
+    var lead = aceSelection.getSelectionLead();
+
+    if (lead.row === range.end.row && lead.column === range.end.column) {
+      selection = range;
+    } else {
+      //selection direction is bottom => up
+      selection.start = range.end;
+      selection.end = range.start;
+    }
+    
+    return {
+      start: {
+        row: selection.start.row + 1,
+        column: selection.start.column + 1
+      },
+      end: {
+        row: selection.end.row + 1,
+        column: selection.end.column + 1
+      },
+      text: selectedText
+    };
+  }
+};
+
+/**
+ * Callback registraion for selection change
+ * @param {selectionCallback} callback
+ * 
+ * @callback selectionCallback
+ * @param {{row:Number, column:Number}} startPos selection start position
+ * @param {{row:Number, column:Number}} endPos selected end position
+ * @param {String} text selected text
+ */
+textmode.onTextSelectionChange = function (callback) {
+  if (typeof callback === 'function') {
+    this._selectionChangedHandler = util.debounce(callback, this.DEBOUNCE_INTERVAL);
+  }
+};
+
+/**
+ * Set selection on editor's text
+ * @param {{row:Number, column:Number}} startPos selection start position
+ * @param {{row:Number, column:Number}} endPos selected end position
+ */
+textmode.setTextSelection = function (startPos, endPos) {
+
+  if (!startPos || !endPos) return;
+
+  if (this.textarea) {
+    var startIndex = util.getIndexForPosition(this.textarea, startPos.row, startPos.column);
+    var endIndex = util.getIndexForPosition(this.textarea, endPos.row, endPos.column);
+    if (startIndex > -1 && endIndex  > -1) {
+      if (this.textarea.setSelectionRange) { 
+        this.textarea.focus();
+        this.textarea.setSelectionRange(startIndex, endIndex);
+      } else if (this.textarea.createTextRange) { // IE < 9
+        var range = this.textarea.createTextRange();
+        range.collapse(true);
+        range.moveEnd('character', endIndex);
+        range.moveStart('character', startIndex);
+        range.select();
+      }
+    }
+  } else if (this.aceEditor) {
+    var range = {
+      start:{
+        row: startPos.row - 1,
+        column: startPos.column - 1
+      },
+      end:{
+        row: endPos.row - 1,
+        column: endPos.column - 1
+      }
+    };
+    this.aceEditor.selection.setRange(range);
   }
 };
 

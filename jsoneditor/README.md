@@ -1,5 +1,11 @@
 # JSON Editor
 
+[![Version](https://img.shields.io/npm/v/jsoneditor.svg)](https://www.npmjs.com/package/jsoneditor)
+[![Downloads](https://img.shields.io/npm/dm/jsoneditor.svg)](https://www.npmjs.com/package/jsoneditor)
+![Maintenance](https://img.shields.io/maintenance/yes/2018.svg)
+[![License](https://img.shields.io/github/license/josdejong/jsoneditor.svg)](https://github.com/josdejong/jsoneditor/blob/master/LICENSE)
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fjosdejong%2Fjsoneditor.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fjosdejong%2Fjsoneditor?ref=badge_shield)
+
 JSON Editor is a web-based tool to view, edit, format, and validate JSON.
 It has various modes such as a tree editor, a code editor, and a plain text
 editor.
@@ -11,6 +17,9 @@ Supported browsers: Chrome, Firefox, Safari, Opera, Internet Explorer 9+.
 
 <img alt="json editor" src="https://raw.github.com/josdejong/jsoneditor/master/misc/jsoneditor.png"> &nbsp; <img alt="code editor" src="https://raw.github.com/josdejong/jsoneditor/master/misc/codeeditor.png">
 
+Cross browser testing for JSONEditor is generously provided by <a href="https://www.browserstack.com" target="_blank">BrowserStack</a>
+
+<a href="https://www.browserstack.com" target="_blank"><img alt="BrowserStack" src="https://raw.github.com/josdejong/jsoneditor/master/misc/browserstack.png"></a>
 
 ## Features
 
@@ -58,9 +67,14 @@ with bower:
 
 #### More
 
-There is a directive available for using JSONEditor in Angular.js:
 
-[https://github.com/angular-tools/ng-jsoneditor](https://github.com/angular-tools/ng-jsoneditor)
+There is a directive available for using JSONEditor in AngularJS:
+
+[https://github.com/isonet/angular-jsoneditor](https://github.com/isonet/angular-jsoneditor)
+
+Directive for Angular 5.x as well:
+
+[https://github.com/mariohmol/ang-jsoneditor](https://github.com/mariohmol/ang-jsoneditor)
 
 
 ## Use

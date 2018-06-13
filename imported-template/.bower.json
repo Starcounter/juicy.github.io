@@ -1,19 +1,15 @@
 {
   "name": "imported-template",
-  "version": "1.4.3",
-  "devDependencies": {
-    "dom-bind-notifier": "~1.0.0",
-    "iron-icon": "PolymerElements/iron-icon#~1.0.4",
-    "iron-iconset-svg": "PolymerElements/iron-iconset-svg#~1.0.4",
-    "web-component-tester": "Polymer/web-component-tester#~4.0.3",
-    "object.observe": "^0.2.6",
-    "array.observe": "^0.0.1"
-  },
+  "version": "3.2.1",
   "keywords": [
-    "html",
     "include",
+    "partials",
+    "html",
+    "declarative",
+    "client-side",
     "partial",
     "template",
+    "custom-element",
     "web-components",
     "polymer"
   ],
@@ -23,7 +19,7 @@
     "Joachim Wester <joachimwester@me.com>",
     "Marcin Warpechowski <marcin@nextgen.pl>"
   ],
-  "description": "Custom element that loads HTML partials into your DOM, control loaded `<script>`s, `<link>`s, caching in native way. Plays nice with Polymer",
+  "description": "Declarative way for client-side includes boosted with HTML Imports features: control over loaded `<script>`s, caching, de-duping, etc.",
   "main": "./imported-template.html",
   "license": "MIT",
   "ignore": [
@@ -38,16 +34,22 @@
     "wct.conf.json"
   ],
   "dependencies": {
-    "juicy-html": ">=1.1.0"
+    "juicy-html": "^4.0.0"
   },
-  "_release": "1.4.3",
+  "devDependencies": {
+    "iron-icon": "PolymerElements/iron-icon#~2.0.0",
+    "iron-iconset-svg": "PolymerElements/iron-iconset-svg#~2.0.0",
+    "web-component-tester": "^6.2.0",
+    "polymer": "^2.0.0",
+    "webcomponentsjs": "^1.0.0"
+  },
+  "_release": "3.2.1",
   "_resolution": {
     "type": "version",
-    "tag": "1.4.3",
-    "commit": "538898f61f6526ff4144d7a55dc405c141181d06"
+    "tag": "3.2.1",
+    "commit": "803a2448cbe73a397ef3a49e1f757d57bfd141e8"
   },
   "_source": "https://github.com/Juicy/imported-template.git",
-  "_target": "^1.4.3",
-  "_originalSource": "imported-template",
-  "_direct": true
+  "_target": "^3.1.0",
+  "_originalSource": "imported-template"
 }

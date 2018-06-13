@@ -36,6 +36,5 @@
   },
   "_source": "https://github.com/tomalec/declarative-shadow-dom.git",
   "_target": "^0.1.0",
-  "_originalSource": "declarative-shadow-dom",
-  "_direct": true
+  "_originalSource": "declarative-shadow-dom"
 }

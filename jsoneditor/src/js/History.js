@@ -124,15 +124,15 @@ function History (editor) {
       'undo': function (params) {
         var node = params.node;
         node.hideChilds();
-        node.sort = params.oldSort;
         node.childs = params.oldChilds;
+        node._updateDomIndexes();
         node.showChilds();
       },
       'redo': function (params) {
         var node = params.node;
         node.hideChilds();
-        node.sort = params.newSort;
         node.childs = params.newChilds;
+        node._updateDomIndexes();
         node.showChilds();
       }
     }
@@ -214,7 +214,7 @@ History.prototype.undo = function () {
       if (action && action.undo) {
         action.undo(obj.params);
         if (obj.params.oldSelection) {
-          this.editor.setSelection(obj.params.oldSelection);
+          this.editor.setDomSelection(obj.params.oldSelection);
         }
       }
       else {
@@ -241,7 +241,7 @@ History.prototype.redo = function () {
       if (action && action.redo) {
         action.redo(obj.params);
         if (obj.params.newSelection) {
-          this.editor.setSelection(obj.params.newSelection);
+          this.editor.setDomSelection(obj.params.newSelection);
         }
       }
       else {

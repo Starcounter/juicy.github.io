@@ -44,6 +44,14 @@ var util = require('./util');
  *                               {boolean} sortObjectKeys If true, object keys are
  *                                                        sorted before display.
  *                                                        false by default.
+ *                               {function} onSelectionChange Callback method, 
+ *                                                            triggered on node selection change
+ *                                                            Only applicable for modes
+ *                                                            'tree', 'view', and 'form'
+ *                               {function} onTextSelectionChange Callback method, 
+ *                                                                triggered on text selection change
+ *                                                                Only applicable for modes
+ *                                                                'text' and 'code'
  * @param {Object | undefined} json JSON object
  */
 function JSONEditor (container, options, json) {
@@ -79,10 +87,11 @@ function JSONEditor (container, options, json) {
     // validate options
     if (options) {
       var VALID_OPTIONS = [
-        'ace', 'theme',
-        'ajv', 'schema',
-        'onChange', 'onEditable', 'onError', 'onModeChange',
-        'escapeUnicode', 'history', 'search', 'mode', 'modes', 'name', 'indentation', 'sortObjectKeys'
+        'ajv', 'schema', 'schemaRefs','templates',
+        'ace', 'theme','autocomplete',
+        'onChange', 'onEditable', 'onError', 'onModeChange', 'onSelectionChange', 'onTextSelectionChange',
+        'escapeUnicode', 'history', 'search', 'mode', 'modes', 'name', 'indentation', 
+        'sortObjectKeys', 'navigationBar', 'statusBar', 'languages', 'language'
       ];
 
       Object.keys(options).forEach(function (option) {
@@ -130,7 +139,7 @@ JSONEditor.prototype._create = function (container, options, json) {
   this.options = options || {};
   this.json = json || {};
 
-  var mode = this.options.mode || 'tree';
+  var mode = this.options.mode || (this.options.modes && this.options.modes[0]) || 'tree';
   this.setMode(mode);
 };
 
@@ -273,8 +282,10 @@ JSONEditor.prototype._onError = function(err) {
  * Set a JSON schema for validation of the JSON object.
  * To remove the schema, call JSONEditor.setSchema(null)
  * @param {Object | null} schema
+ * @param {Object.<string, Object>=} schemaRefs Schemas that are referenced using the `$ref` property from the JSON schema that are set in the `schema` option,
+ +  the object structure in the form of `{reference_key: schemaObject}`
  */
-JSONEditor.prototype.setSchema = function (schema) {
+JSONEditor.prototype.setSchema = function (schema, schemaRefs) {
   // compile a JSON schema validator if a JSON schema is provided
   if (schema) {
     var ajv;
@@ -288,6 +299,15 @@ JSONEditor.prototype.setSchema = function (schema) {
     }
 
     if (ajv) {
+      if(schemaRefs) {
+        for (var ref in schemaRefs) {
+          ajv.removeSchema(ref);  // When updating a schema - old refs has to be removed first
+          if(schemaRefs[ref]) {
+            ajv.addSchema(schemaRefs[ref], ref);
+          }
+        }
+        this.options.schemaRefs = schemaRefs;
+      }
       this.validateSchema = ajv.compile(schema);
 
       // add schema to the options, so that when switching to an other mode,
@@ -304,6 +324,7 @@ JSONEditor.prototype.setSchema = function (schema) {
     // remove current schema
     this.validateSchema = null;
     this.options.schema = null;
+    this.options.schemaRefs = null;
     this.validate(); // to clear current error messages
     this.refresh();  // update DOM
   }

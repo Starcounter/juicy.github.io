@@ -21,11 +21,11 @@
  * License for the specific language governing permissions and limitations under
  * the License.
  *
- * Copyright (c) 2011-2016 Jos de Jong, http://jsoneditoronline.org
+ * Copyright (c) 2011-2017 Jos de Jong, http://jsoneditoronline.org
  *
  * @author  Jos de Jong, <wjosdejong@gmail.com>
- * @version 5.5.7
- * @date    2016-08-17
+ * @version 5.17.1
+ * @date    2018-06-03
  */
 (function webpackUniversalModuleDefinition(root, factory) {
 	if(typeof exports === 'object' && typeof module === 'object')
@@ -94,7 +94,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	}
 
 	var treemode = __webpack_require__(1);
-	var textmode = __webpack_require__(12);
+	var textmode = __webpack_require__(17);
 	var util = __webpack_require__(4);
 
 	/**
@@ -129,6 +129,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	 *                               {boolean} sortObjectKeys If true, object keys are
 	 *                                                        sorted before display.
 	 *                                                        false by default.
+	 *                               {function} onSelectionChange Callback method, 
+	 *                                                            triggered on node selection change
+	 *                                                            Only applicable for modes
+	 *                                                            'tree', 'view', and 'form'
+	 *                               {function} onTextSelectionChange Callback method, 
+	 *                                                                triggered on text selection change
+	 *                                                                Only applicable for modes
+	 *                                                                'text' and 'code'
 	 * @param {Object | undefined} json JSON object
 	 */
 	function JSONEditor (container, options, json) {
@@ -164,10 +172,11 @@ return /******/ (function(modules) { // webpackBootstrap
 	    // validate options
 	    if (options) {
 	      var VALID_OPTIONS = [
-	        'ace', 'theme',
-	        'ajv', 'schema',
-	        'onChange', 'onEditable', 'onError', 'onModeChange',
-	        'escapeUnicode', 'history', 'search', 'mode', 'modes', 'name', 'indentation', 'sortObjectKeys'
+	        'ajv', 'schema', 'schemaRefs','templates',
+	        'ace', 'theme','autocomplete',
+	        'onChange', 'onEditable', 'onError', 'onModeChange', 'onSelectionChange', 'onTextSelectionChange',
+	        'escapeUnicode', 'history', 'search', 'mode', 'modes', 'name', 'indentation', 
+	        'sortObjectKeys', 'navigationBar', 'statusBar', 'languages', 'language'
 	      ];
 
 	      Object.keys(options).forEach(function (option) {
@@ -215,7 +224,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  this.options = options || {};
 	  this.json = json || {};
 
-	  var mode = this.options.mode || 'tree';
+	  var mode = this.options.mode || (this.options.modes && this.options.modes[0]) || 'tree';
 	  this.setMode(mode);
 	};
 
@@ -358,8 +367,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	 * Set a JSON schema for validation of the JSON object.
 	 * To remove the schema, call JSONEditor.setSchema(null)
 	 * @param {Object | null} schema
+	 * @param {Object.<string, Object>=} schemaRefs Schemas that are referenced using the `$ref` property from the JSON schema that are set in the `schema` option,
+	 +  the object structure in the form of `{reference_key: schemaObject}`
 	 */
-	JSONEditor.prototype.setSchema = function (schema) {
+	JSONEditor.prototype.setSchema = function (schema, schemaRefs) {
 	  // compile a JSON schema validator if a JSON schema is provided
 	  if (schema) {
 	    var ajv;
@@ -373,6 +384,15 @@ return /******/ (function(modules) { // webpackBootstrap
 	    }
 
 	    if (ajv) {
+	      if(schemaRefs) {
+	        for (var ref in schemaRefs) {
+	          ajv.removeSchema(ref);  // When updating a schema - old refs has to be removed first
+	          if(schemaRefs[ref]) {
+	            ajv.addSchema(schemaRefs[ref], ref);
+	          }
+	        }
+	        this.options.schemaRefs = schemaRefs;
+	      }
 	      this.validateSchema = ajv.compile(schema);
 
 	      // add schema to the options, so that when switching to an other mode,
@@ -389,6 +409,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    // remove current schema
 	    this.validateSchema = null;
 	    this.options.schema = null;
+	    this.options.schemaRefs = null;
 	    this.validate(); // to clear current error messages
 	    this.refresh();  // update DOM
 	  }
@@ -481,9 +502,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	var History = __webpack_require__(3);
 	var SearchBox = __webpack_require__(6);
 	var ContextMenu = __webpack_require__(7);
-	var Node = __webpack_require__(8);
-	var ModeSwitcher = __webpack_require__(11);
+	var TreePath = __webpack_require__(9);
+	var Node = __webpack_require__(10);
+	var ModeSwitcher = __webpack_require__(15);
 	var util = __webpack_require__(4);
+	var autocomplete = __webpack_require__(16);
+	var translate = __webpack_require__(8).translate;
+	var setLanguages = __webpack_require__(8).setLanguages;
+	var setLanguage = __webpack_require__(8).setLanguage;
 
 	// create a mixin with the functions for tree mode
 	var treemode = {};
@@ -526,6 +552,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	  this.focusTarget = null;
 
 	  this._setOptions(options);
+
+	  if (options.autocomplete)
+	      this.autocomplete = new autocomplete(options.autocomplete);
 
 	  if (this.options.history && this.options.mode !== 'view') {
 	    this.history = new History(this);
@@ -583,7 +612,11 @@ return /******/ (function(modules) { // webpackBootstrap
 	    history: true,
 	    mode: 'tree',
 	    name: undefined,   // field name of root node
-	    schema: null
+	    schema: null,
+	    schemaRefs: null,
+	    autocomplete: null,
+	    navigationBar : true,
+	    onSelectionChange: null
 	  };
 
 	  // copy all options
@@ -596,10 +629,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	  }
 
 	  // compile a JSON schema validator if a JSON schema is provided
-	  this.setSchema(this.options.schema);
+	  this.setSchema(this.options.schema, this.options.schemaRefs);
 
 	  // create a debounced validate function
 	  this._debouncedValidate = util.debounce(this.validate.bind(this), this.DEBOUNCE_INTERVAL);
+
+	  if (options.onSelectionChange) {
+	    this.onSelectionChange(options.onSelectionChange);
+	  }
+
+	  setLanguages(this.options.languages);
+	  setLanguage(this.options.language)
 	};
 
 	/**
@@ -686,7 +726,16 @@ return /******/ (function(modules) { // webpackBootstrap
 	 * @param {String} jsonText
 	 */
 	treemode.setText = function(jsonText) {
-	  this.set(util.parse(jsonText));
+	  try {
+	    this.set(util.parse(jsonText)); // this can throw an error
+	  }
+	  catch (err) {
+	    // try to sanitize json, replace JavaScript notation with JSON notation
+	    var sanitizedJsonText = util.sanitize(jsonText);
+
+	    // try to parse again
+	    this.set(util.parse(sanitizedJsonText)); // this can throw an error
+	  }
 	};
 
 	/**
@@ -743,6 +792,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	    this.node.collapse();
 	    this.tbody.removeChild(this.node.getDom());
 	    delete this.node;
+	  }
+
+	  if (this.treePath) {
+	    this.treePath.reset();
 	  }
 	};
 
@@ -894,28 +947,35 @@ return /******/ (function(modules) { // webpackBootstrap
 	    }
 	  }
 
-	  // display the error in the nodes with a problem
-	  this.errorNodes = duplicateErrors
-	      .concat(schemaErrors)
-	      .reduce(function expandParents (all, entry) {
-	        // expand parents, then merge such that parents come first and
-	        // original entries last
-	        return entry.node
-	            .findParents()
-	            .map(function (parent) {
-	              return {
-	                node: parent,
-	                child: entry.node,
-	                error: {
-	                  message: parent.type === 'object'
-	                      ? 'Contains invalid properties' // object
-	                      : 'Contains invalid items'      // array
-	                }
-	              };
-	            })
-	            .concat(all, [entry]);
-	      }, [])
-	      // TODO: dedupe the parent nodes
+	  var errorNodes = duplicateErrors.concat(schemaErrors);
+	  var parentPairs = errorNodes
+	      .reduce(function (all, entry) {
+	          return entry.node
+	              .findParents()
+	              .filter(function (parent) {
+	                  return !all.some(function (pair) {
+	                    return pair[0] === parent;
+	                  });
+	              })
+	              .map(function (parent) {
+	                  return [parent, entry.node];
+	              })
+	              .concat(all);
+	      }, []);
+
+	  this.errorNodes = parentPairs
+	      .map(function (pair) {
+	          return {
+	            node: pair[0],
+	            child: pair[1],
+	            error: {
+	              message: pair[0].type === 'object'
+	                  ? 'Contains invalid properties' // object
+	                  : 'Contains invalid items'      // array
+	            }
+	          };
+	      })
+	      .concat(errorNodes)
 	      .map(function setError (entry) {
 	        entry.node.setError(entry.error, entry.child);
 	        return entry.node;
@@ -997,7 +1057,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	 *                            {Node[]} nodes                Nodes in case of multi selection
 	 *                            {Number} scrollTop            Scroll position
 	 */
-	treemode.setSelection = function (selection) {
+	treemode.setDomSelection = function (selection) {
 	  if (!selection) {
 	    return;
 	  }
@@ -1027,7 +1087,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	 *                            {Node[]} nodes                Nodes in case of multi selection
 	 *                            {Number} scrollTop            Scroll position
 	 */
-	treemode.getSelection = function () {
+	treemode.getDomSelection = function () {
 	  var range = util.getSelectionOffset();
 	  if (range && range.container.nodeName !== 'DIV') { // filter on (editable) divs)
 	    range = null;
@@ -1152,16 +1212,18 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	  // create expand all button
 	  var expandAll = document.createElement('button');
+	  expandAll.type = 'button';
 	  expandAll.className = 'jsoneditor-expand-all';
-	  expandAll.title = 'Expand all fields';
+	  expandAll.title = translate('expandAll');
 	  expandAll.onclick = function () {
 	    editor.expandAll();
 	  };
 	  this.menu.appendChild(expandAll);
 
-	  // create expand all button
+	  // create collapse all button
 	  var collapseAll = document.createElement('button');
-	  collapseAll.title = 'Collapse all fields';
+	  collapseAll.type = 'button';
+	  collapseAll.title = translate('collapseAll');
 	  collapseAll.className = 'jsoneditor-collapse-all';
 	  collapseAll.onclick = function () {
 	    editor.collapseAll();
@@ -1172,8 +1234,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	  if (this.history) {
 	    // create undo button
 	    var undo = document.createElement('button');
+	    undo.type = 'button';
 	    undo.className = 'jsoneditor-undo jsoneditor-separator';
-	    undo.title = 'Undo last action (Ctrl+Z)';
+	    undo.title = translate('undo');
 	    undo.onclick = function () {
 	      editor._onUndo();
 	    };
@@ -1182,8 +1245,9 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    // create redo button
 	    var redo = document.createElement('button');
+	    redo.type = 'button';
 	    redo.className = 'jsoneditor-redo';
-	    redo.title = 'Redo (Ctrl+Shift+Z)';
+	    redo.title = translate('redo');
 	    redo.onclick = function () {
 	      editor._onRedo();
 	    };
@@ -1213,6 +1277,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	  // create search box
 	  if (this.options.search) {
 	    this.searchBox = new SearchBox(this, this.menu);
+	  }
+
+	  if(this.options.navigationBar) {
+	    // create second menu row for treepath
+	    this.navBar = document.createElement('div');
+	    this.navBar.className = 'jsoneditor-navigation-bar nav-bar-empty';
+	    this.frame.appendChild(this.navBar);
+
+	    this.treePath = new TreePath(this.navBar);
+	    this.treePath.onSectionSelected(this._onTreePathSectionSelected.bind(this));
+	    this.treePath.onContextMenuItemSelected(this._onTreePathMenuItemSelected.bind(this));
 	  }
 	};
 
@@ -1250,26 +1325,34 @@ return /******/ (function(modules) { // webpackBootstrap
 	 * @private
 	 */
 	treemode._onEvent = function (event) {
-	  if (event.type == 'keydown') {
+	  if (event.type === 'keydown') {
 	    this._onKeyDown(event);
 	  }
 
-	  if (event.type == 'focus') {
+	  if (event.type === 'focus') {
 	    this.focusTarget = event.target;
 	  }
 
-	  if (event.type == 'mousedown') {
+	  if (event.type === 'mousedown') {
 	    this._startDragDistance(event);
 	  }
-	  if (event.type == 'mousemove' || event.type == 'mouseup' || event.type == 'click') {
+	  if (event.type === 'mousemove' || event.type === 'mouseup' || event.type === 'click') {
 	    this._updateDragDistance(event);
 	  }
 
 	  var node = Node.getNodeFromTarget(event.target);
 
+	  if (node && this.options && this.options.navigationBar && node && (event.type === 'keydown' || event.type === 'mousedown')) {
+	    // apply on next tick, right after the new key press is applied
+	    var me = this;
+	    setTimeout(function () {
+	      me._updateTreePath(node.getNodePath());
+	    })
+	  }
+
 	  if (node && node.selected) {
-	    if (event.type == 'click') {
-	      if (event.target == node.dom.menu) {
+	    if (event.type === 'click') {
+	      if (event.target === node.dom.menu) {
 	        this.showContextMenu(event.target);
 
 	        // stop propagation (else we will open the context menu of a single node)
@@ -1282,20 +1365,20 @@ return /******/ (function(modules) { // webpackBootstrap
 	      }
 	    }
 
-	    if (event.type == 'mousedown') {
+	    if (event.type === 'mousedown') {
 	      // drag multiple nodes
 	      Node.onDragStart(this.multiselection.nodes, event);
 	    }
 	  }
 	  else {
-	    if (event.type == 'mousedown') {
+	    if (event.type === 'mousedown') {
 	      this.deselect();
 
-	      if (node && event.target == node.dom.drag) {
+	      if (node && event.target === node.dom.drag) {
 	        // drag a singe node
 	        Node.onDragStart(node, event);
 	      }
-	      else if (!node || (event.target != node.dom.field && event.target != node.dom.value && event.target != node.dom.select)) {
+	      else if (!node || (event.target !== node.dom.field && event.target !== node.dom.value && event.target !== node.dom.select)) {
 	        // select multiple nodes
 	        this._onMultiSelectStart(event);
 	      }
@@ -1304,6 +1387,75 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	  if (node) {
 	    node.onEvent(event);
+	  }
+	};
+
+	/**
+	 * Update TreePath components
+	 * @param {Array<Node>} pathNodes list of nodes in path from root to selection 
+	 * @private
+	 */
+	treemode._updateTreePath = function (pathNodes) {
+	  if (pathNodes && pathNodes.length) {
+	    util.removeClassName(this.navBar, 'nav-bar-empty');
+	    
+	    var pathObjs = [];
+	    pathNodes.forEach(function (node) {
+	      var pathObj = {
+	        name: getName(node),
+	        node: node,
+	        children: []
+	      }
+	      if (node.childs && node.childs.length) {
+	        node.childs.forEach(function (childNode) {
+	          pathObj.children.push({
+	            name: getName(childNode),
+	            node: childNode
+	          });
+	        });
+	      }
+	      pathObjs.push(pathObj);
+	    });
+	    this.treePath.setPath(pathObjs);
+	  } else {
+	    util.addClassName(this.navBar, 'nav-bar-empty');
+	  }
+
+	  function getName(node) {
+	    return node.field !== undefined
+	        ? node._escapeHTML(node.field)
+	        : (isNaN(node.index) ? node.type : node.index);
+	  }
+	};
+
+	/**
+	 * Callback for tree path section selection - focus the selected node in the tree
+	 * @param {Object} pathObj path object that was represents the selected section node
+	 * @private
+	 */
+	treemode._onTreePathSectionSelected = function (pathObj) {
+	  if(pathObj && pathObj.node) {
+	    pathObj.node.expandTo();
+	    pathObj.node.focus();
+	  }
+	};
+
+	/**
+	 * Callback for tree path menu item selection - rebuild the path accrding to the new selection and focus the selected node in the tree
+	 * @param {Object} pathObj path object that was represents the parent section node
+	 * @param {String} selection selected section child
+	 * @private
+	 */
+	treemode._onTreePathMenuItemSelected = function (pathObj, selection) {
+	  if(pathObj && pathObj.children.length) {
+	    var selectionObj = pathObj.children.find(function (obj) {
+	      return obj.name === selection;
+	    });
+	    if(selectionObj && selectionObj.node) {
+	      this._updateTreePath(selectionObj.node.getNodePath());
+	      selectionObj.node.expandTo();
+	      selectionObj.node.focus();
+	    }
 	  }
 	};
 
@@ -1402,6 +1554,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	  if (start && end) {
 	    // find the top level childs, all having the same parent
 	    this.multiselection.nodes = this._findTopLevelNodes(start, end);
+	    if (this.multiselection.nodes && this.multiselection.nodes.length) {
+	      var firstNode = this.multiselection.nodes[0];
+	      if (this.multiselection.start === firstNode || this.multiselection.start.isDescendantOf(firstNode)) {
+	        this.multiselection.direction = 'down';
+	      } else {
+	        this.multiselection.direction = 'up';
+	      }
+	    }
 	    this.select(this.multiselection.nodes);
 	  }
 	};
@@ -1434,9 +1594,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	/**
 	 * deselect currently selected nodes
 	 * @param {boolean} [clearStartAndEnd=false]  If true, the `start` and `end`
-	 *                                            state is cleared too.
+	 *                                            state is cleared too. 
 	 */
 	treemode.deselect = function (clearStartAndEnd) {
+	  var selectionChanged = !!this.multiselection.nodes.length;
 	  this.multiselection.nodes.forEach(function (node) {
 	    node.setSelected(false);
 	  });
@@ -1445,6 +1606,12 @@ return /******/ (function(modules) { // webpackBootstrap
 	  if (clearStartAndEnd) {
 	    this.multiselection.start = null;
 	    this.multiselection.end = null;
+	  }
+
+	  if (selectionChanged) {
+	    if (this._selectionChangedHandler) {
+	      this._selectionChangedHandler();
+	    }
 	  }
 	};
 
@@ -1464,8 +1631,14 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    var first = nodes[0];
 	    nodes.forEach(function (node) {
+	      node.expandPathToNode();
 	      node.setSelected(true, node === first);
 	    });
+
+	    if (this._selectionChangedHandler) {
+	      var selection = this.getSelection();
+	      this._selectionChangedHandler(selection.start, selection.end);
+	    }
 	  }
 	};
 
@@ -1523,7 +1696,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	 */
 	treemode._onKeyDown = function (event) {
 	  var keynum = event.which || event.keyCode;
+	  var altKey = event.altKey;
 	  var ctrlKey = event.ctrlKey;
+	  var metaKey = event.metaKey;
 	  var shiftKey = event.shiftKey;
 	  var handled = false;
 
@@ -1569,6 +1744,46 @@ return /******/ (function(modules) { // webpackBootstrap
 	    }
 	  }
 
+	  if ((this.options.autocomplete) && (!handled)) {
+	      if (!ctrlKey && !altKey && !metaKey && (event.key.length == 1 || keynum == 8 || keynum == 46)) {
+	          handled = false;
+	          var jsonElementType = "";
+	          if (event.target.className.indexOf("jsoneditor-value") >= 0) jsonElementType = "value";
+	          if (event.target.className.indexOf("jsoneditor-field") >= 0) jsonElementType = "field";
+
+	          var node = Node.getNodeFromTarget(event.target);
+	          // Activate autocomplete
+	          setTimeout(function (hnode, element) {
+	              if (element.innerText.length > 0) {
+	                  var result = this.options.autocomplete.getOptions(element.innerText, hnode.getPath(), jsonElementType, hnode.editor);
+	                  if (result === null) {
+	                      this.autocomplete.hideDropDown();
+	                  } else if (typeof result.then === 'function') {
+	                      // probably a promise
+	                      if (result.then(function (obj) {
+	                          if (obj === null) {
+	                              this.autocomplete.hideDropDown();
+	                          } else if (obj.options) {
+	                              this.autocomplete.show(element, obj.startFrom, obj.options);
+	                          } else {
+	                              this.autocomplete.show(element, 0, obj);
+	                          }
+	                      }.bind(this)));
+	                  } else {
+	                      // definitely not a promise
+	                      if (result.options)
+	                          this.autocomplete.show(element, result.startFrom, result.options);
+	                      else
+	                          this.autocomplete.show(element, 0, result);
+	                  }
+	              }
+	              else
+	                  this.autocomplete.hideDropDown();
+
+	          }.bind(this, node, event.target), 50);
+	      } 
+	  }
+
 	  if (handled) {
 	    event.preventDefault();
 	    event.stopPropagation();
@@ -1582,6 +1797,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	treemode._createTable = function () {
 	  var contentOuter = document.createElement('div');
 	  contentOuter.className = 'jsoneditor-outer';
+	  if(this.options.navigationBar) {
+	    util.addClassName(contentOuter, 'has-nav-bar');
+	  }
 	  this.contentOuter = contentOuter;
 
 	  this.content = document.createElement('div');
@@ -1617,7 +1835,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	/**
 	 * Show a contextmenu for this node.
 	 * Used for multiselection
-	 * @param {HTMLElement} anchor   Anchor element to attache the context menu to.
+	 * @param {HTMLElement} anchor   Anchor element to attach the context menu to.
 	 * @param {function} [onClose]   Callback method called when the context menu
 	 *                               is being closed.
 	 */
@@ -1627,8 +1845,8 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	  // create duplicate button
 	  items.push({
-	    text: 'Duplicate',
-	    title: 'Duplicate selected fields (Ctrl+D)',
+	    text: translate('duplicateText'),
+	    title: translate('duplicateTitle'),
 	    className: 'jsoneditor-duplicate',
 	    click: function () {
 	      Node.onDuplicate(editor.multiselection.nodes);
@@ -1637,8 +1855,8 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	  // create remove button
 	  items.push({
-	    text: 'Remove',
-	    title: 'Remove selected fields (Ctrl+Del)',
+	    text: translate('remove'),
+	    title: translate('removeTitle'),
 	    className: 'jsoneditor-remove',
 	    click: function () {
 	      Node.onRemove(editor.multiselection.nodes);
@@ -1649,6 +1867,125 @@ return /******/ (function(modules) { // webpackBootstrap
 	  menu.show(anchor, this.content);
 	};
 
+	/**
+	 * Get current selected nodes
+	 * @return {{start:SerializableNode, end: SerializableNode}}
+	 */
+	treemode.getSelection = function () {
+	  var selection = {
+	    start: null,
+	    end: null
+	  };
+	  if (this.multiselection.nodes && this.multiselection.nodes.length) {
+	    if (this.multiselection.nodes.length) {
+	      var selection1 = this.multiselection.nodes[0];
+	      var selection2 = this.multiselection.nodes[this.multiselection.nodes.length - 1];
+	      if (this.multiselection.direction === 'down') {
+	        selection.start = selection1.serialize();
+	        selection.end = selection2.serialize();
+	      } else {
+	        selection.start = selection2.serialize();
+	        selection.end = selection1.serialize();
+	      }
+	    }
+	  }
+	  return selection;
+	};
+
+	/**
+	 * Callback registraion for selection change
+	 * @param {selectionCallback} callback 
+	 * 
+	 * @callback selectionCallback
+	 * @param {SerializableNode=} start
+	 * @param {SerializableNode=} end
+	 */
+	treemode.onSelectionChange = function (callback) {
+	  if (typeof callback === 'function') {
+	    this._selectionChangedHandler = util.debounce(callback, this.DEBOUNCE_INTERVAL);
+	  }
+	};
+
+	/**
+	 * Select range of nodes.
+	 * For selecting single node send only the start parameter
+	 * For clear the selection do not send any parameter
+	 * If the nodes are not from the same level the first common parent will be selected
+	 * @param {{path: Array.<String>}} start object contains the path for selection start 
+	 * @param {{path: Array.<String>}=} end object contains the path for selection end
+	 */
+	treemode.setSelection = function (start, end) {
+	  // check for old usage
+	  if (start && start.dom && start.range) {
+	    console.warn('setSelection/getSelection usage for text selection is depracated and should not be used, see documantaion for supported selection options');
+	    this.setDomSelection(start);
+	  }
+
+	  var nodes = this._getNodeIntsncesByRange(start, end);
+	  
+	  nodes.forEach(function(node) {
+	    node.expandTo();
+	  });
+	  this.select(nodes);
+	};
+
+	/**
+	 * Returns a set of Nodes according to a range of selection
+	 * @param {{path: Array.<String>}} start object contains the path for range start 
+	 * @param {{path: Array.<String>}=} end object contains the path for range end
+	 * @return {Array.<Node>} Node intances on the given range
+	 * @private
+	 */
+	treemode._getNodeIntsncesByRange = function (start, end) {
+	  var startNode, endNode;
+
+	  if (start && start.path) {
+	    startNode = this.node.findNodeByPath(start.path);
+	    if (end && end.path) {
+	      endNode = this.node.findNodeByPath(end.path);
+	    }
+	  }
+
+	  var nodes = [];
+	  if (startNode instanceof Node) {
+	    if (endNode instanceof Node && endNode !== startNode) {
+	      if (startNode.parent === endNode.parent) {
+	        var start, end;
+	        if (startNode.getIndex() < endNode.getIndex()) {
+	          start = startNode;
+	          end = endNode;
+	        } else {
+	          start = endNode;
+	          end = startNode;
+	        }
+	        var current = start;
+	        nodes.push(current);
+	        do {
+	          current = current.nextSibling();
+	          nodes.push(current);
+	        } while (current && current !== end);
+	      } else {
+	        nodes = this._findTopLevelNodes(startNode, endNode);
+	      }
+	    } else {
+	      nodes.push(startNode);
+	    }
+	  }
+
+	  return nodes;
+
+	};
+
+	treemode.getNodesByRange = function (start, end) {
+	  var nodes = this._getNodeIntsncesByRange(start, end);
+	  var serializableNodes = [];
+
+	  nodes.forEach(function (node){
+	    serializableNodes.push(node.serialize());
+	  });
+
+	  return serializableNodes;
+	}
 
 	// define modes
 	module.exports = [
@@ -1892,15 +2229,15 @@ return /******/ (function(modules) { // webpackBootstrap
 	      'undo': function (params) {
 	        var node = params.node;
 	        node.hideChilds();
-	        node.sort = params.oldSort;
 	        node.childs = params.oldChilds;
+	        node._updateDomIndexes();
 	        node.showChilds();
 	      },
 	      'redo': function (params) {
 	        var node = params.node;
 	        node.hideChilds();
-	        node.sort = params.newSort;
 	        node.childs = params.newChilds;
+	        node._updateDomIndexes();
 	        node.showChilds();
 	      }
 	    }
@@ -1982,7 +2319,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	      if (action && action.undo) {
 	        action.undo(obj.params);
 	        if (obj.params.oldSelection) {
-	          this.editor.setSelection(obj.params.oldSelection);
+	          this.editor.setDomSelection(obj.params.oldSelection);
 	        }
 	      }
 	      else {
@@ -2009,7 +2346,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	      if (action && action.redo) {
 	        action.redo(obj.params);
 	        if (obj.params.newSelection) {
-	          this.editor.setSelection(obj.params.newSelection);
+	          this.editor.setDomSelection(obj.params.newSelection);
 	        }
 	      }
 	      else {
@@ -2083,6 +2420,23 @@ return /******/ (function(modules) { // webpackBootstrap
 	    jsString = match[3];
 	  }
 
+	  var controlChars = {
+	    '\b': '\\b',
+	    '\f': '\\f',
+	    '\n': '\\n',
+	    '\r': '\\r',
+	    '\t': '\\t'
+	  };
+
+	  var quote = '\'';
+	  var quoteDbl = '"';
+	  var quoteLeft = '\u2018';
+	  var quoteRight = '\u2019';
+	  var quoteDblLeft = '\u201C';
+	  var quoteDblRight = '\u201D';
+	  var graveAccent = '\u0060';
+	  var acuteAccent = '\u00B4';
+
 	  // helper functions to get the current/prev/next character
 	  function curr () { return jsString.charAt(i);     }
 	  function next()  { return jsString.charAt(i + 1); }
@@ -2121,32 +2475,37 @@ return /******/ (function(modules) { // webpackBootstrap
 	  }
 
 	  // parse single or double quoted string
-	  function parseString(quote) {
+	  function parseString(endQuote) {
 	    chars.push('"');
 	    i++;
 	    var c = curr();
-	    while (i < jsString.length && c !== quote) {
+	    while (i < jsString.length && c !== endQuote) {
 	      if (c === '"' && prev() !== '\\') {
 	        // unescaped double quote, escape it
-	        chars.push('\\');
+	        chars.push('\\"');
 	      }
-
-	      // handle escape character
-	      if (c === '\\') {
+	      else if (controlChars.hasOwnProperty(c)) {
+	        // replace unescaped control characters with escaped ones
+	        chars.push(controlChars[c])
+	      }
+	      else if (c === '\\') {
+	        // remove the escape character when followed by a single quote ', not needed
 	        i++;
 	        c = curr();
-
-	        // remove the escape character when followed by a single quote ', not needed
 	        if (c !== '\'') {
 	          chars.push('\\');
 	        }
+	        chars.push(c);
 	      }
-	      chars.push(c);
+	      else {
+	        // regular character
+	        chars.push(c);
+	      }
 
 	      i++;
 	      c = curr();
 	    }
-	    if (c === quote) {
+	    if (c === endQuote) {
 	      chars.push('"');
 	      i++;
 	    }
@@ -2182,8 +2541,25 @@ return /******/ (function(modules) { // webpackBootstrap
 	    else if (c === '/' && next() === '/') {
 	      skipComment();
 	    }
-	    else if (c === '\'' || c === '"') {
-	      parseString(c);
+	    else if (c === '\u00A0' || (c >= '\u2000' && c <= '\u200A') || c === '\u202F' || c === '\u205F' || c === '\u3000') {
+	      // special white spaces (like non breaking space)
+	      chars.push(' ')
+	      i++
+	    }
+	    else if (c === quote) {
+	      parseString(quote);
+	    }
+	    else if (c === quoteDbl) {
+	      parseString(quoteDbl);
+	    }
+	    else if (c === graveAccent) {
+	      parseString(acuteAccent);
+	    }
+	    else if (c === quoteLeft) {
+	      parseString(quoteRight);
+	    }
+	    else if (c === quoteDblLeft) {
+	      parseString(quoteDblRight);
 	    }
 	    else if (/[a-zA-Z_$]/.test(c) && ['{', ','].indexOf(lastNonWhitespace()) !== -1) {
 	      // an unquoted object key (like a in '{a:2}')
@@ -2702,6 +3078,12 @@ return /******/ (function(modules) { // webpackBootstrap
 	    }
 
 	    var value = jsonPath.substring(1, end);
+	    if (value[0] === '\'') {
+	      // ajv produces string prop names with single quotes, so we need
+	      // to reformat them into valid double-quoted JSON strings
+	      value = '\"' + value.substring(1, value.length - 1) + '\"';
+	    }
+
 	    prop = value === '*' ? value : JSON.parse(value); // parse string and number
 	    remainder = jsonPath.substr(end + 1);
 	  }
@@ -2812,6 +3194,141 @@ return /******/ (function(modules) { // webpackBootstrap
 	  return {start: start, end: newEnd};
 	};
 
+
+	/**
+	 * Return an object with the selection range or cursor position (if both have the same value)
+	 * Support also old browsers (IE8-)
+	 * Source: http://ourcodeworld.com/articles/read/282/how-to-get-the-current-cursor-position-and-selection-within-a-text-input-or-textarea-in-javascript
+	 * @param {DOMElement} el A dom element of a textarea or input text.
+	 * @return {Object} reference Object with 2 properties (start and end) with the identifier of the location of the cursor and selected text.
+	 **/
+	exports.getInputSelection = function(el) {
+	  var startIndex = 0, endIndex = 0, normalizedValue, range, textInputRange, len, endRange;
+
+	  if (typeof el.selectionStart == "number" && typeof el.selectionEnd == "number") {
+	      startIndex = el.selectionStart;
+	      endIndex = el.selectionEnd;
+	  } else {
+	      range = document.selection.createRange();
+
+	      if (range && range.parentElement() == el) {
+	          len = el.value.length;
+	          normalizedValue = el.value.replace(/\r\n/g, "\n");
+
+	          // Create a working TextRange that lives only in the input
+	          textInputRange = el.createTextRange();
+	          textInputRange.moveToBookmark(range.getBookmark());
+
+	          // Check if the startIndex and endIndex of the selection are at the very end
+	          // of the input, since moveStart/moveEnd doesn't return what we want
+	          // in those cases
+	          endRange = el.createTextRange();
+	          endRange.collapse(false);
+
+	          if (textInputRange.compareEndPoints("StartToEnd", endRange) > -1) {
+	              startIndex = endIndex = len;
+	          } else {
+	              startIndex = -textInputRange.moveStart("character", -len);
+	              startIndex += normalizedValue.slice(0, startIndex).split("\n").length - 1;
+
+	              if (textInputRange.compareEndPoints("EndToEnd", endRange) > -1) {
+	                  endIndex = len;
+	              } else {
+	                  endIndex = -textInputRange.moveEnd("character", -len);
+	                  endIndex += normalizedValue.slice(0, endIndex).split("\n").length - 1;
+	              }
+	          }
+	      }
+	  }
+
+	  return {
+	      startIndex: startIndex,
+	      endIndex: endIndex,
+	      start: _positionForIndex(startIndex),
+	      end: _positionForIndex(endIndex)
+	  };
+
+	  /**
+	   * Returns textarea row and column position for certain index
+	   * @param {Number} index text index
+	   * @returns {{row: Number, col: Number}}
+	   */
+	  function _positionForIndex(index) {
+	    var textTillIndex = el.value.substring(0,index);
+	    var row = (textTillIndex.match(/\n/g) || []).length + 1;
+	    var col = textTillIndex.length - textTillIndex.lastIndexOf("\n");
+
+	    return {
+	      row: row,
+	      column: col
+	    }
+	  }
+	}
+
+	/**
+	 * Returns the index for certaion position in text element
+	 * @param {DOMElement} el A dom element of a textarea or input text.
+	 * @param {Number} row row value, > 0, if exceeds rows number - last row will be returned
+	 * @param {Number} column column value, > 0, if exceeds column length - end of column will be returned
+	 * @returns {Number} index of position in text, -1 if not found
+	 */
+	exports.getIndexForPosition = function(el, row, column) {
+	  var text = el.value || '';
+	  if (row > 0 && column > 0) {
+	    var rows = text.split('\n', row);
+	    row = Math.min(rows.length, row);
+	    column = Math.min(rows[row - 1].length, column - 1);
+	    var columnCount = (row == 1 ? column : column + 1); // count new line on multiple rows
+	    return rows.slice(0, row - 1).join('\n').length + columnCount;
+	  }
+	  return -1;
+	}
+
+
+	if (typeof Element !== 'undefined') {
+	  // Polyfill for array remove
+	  (function () {
+	    function polyfill (item) {
+	      if (item.hasOwnProperty('remove')) {
+	        return;
+	      }
+	      Object.defineProperty(item, 'remove', {
+	        configurable: true,
+	        enumerable: true,
+	        writable: true,
+	        value: function remove() {
+	          if (this.parentNode != null)
+	            this.parentNode.removeChild(this);
+	        }
+	      });
+	    }
+
+	    if (typeof Element !== 'undefined')       { polyfill(Element.prototype); }
+	    if (typeof CharacterData !== 'undefined') { polyfill(CharacterData.prototype); }
+	    if (typeof DocumentType !== 'undefined')  { polyfill(DocumentType.prototype); }
+	  })();
+	}
+
+
+	// Polyfill for startsWith
+	if (!String.prototype.startsWith) {
+	    String.prototype.startsWith = function (searchString, position) {
+	        position = position || 0;
+	        return this.substr(position, searchString.length) === searchString;
+	    };
+	}
+
+	// Polyfill for Array.find
+	if (!Array.prototype.find) {
+	  Array.prototype.find = function(callback) {    
+	    for (var i = 0; i < this.length; i++) {
+	      var element = this[i];
+	      if ( callback.call(this, element, i, this) ) {
+	        return element;
+	      }
+	    }
+	  }
+	}
 
 /***/ },
 /* 5 */
@@ -3294,12 +3811,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	  tbodySearch.appendChild(tr);
 
 	  var refreshSearch = document.createElement('button');
+	  refreshSearch.type = 'button';
 	  refreshSearch.className = 'jsoneditor-refresh';
 	  td = document.createElement('td');
 	  td.appendChild(refreshSearch);
 	  tr.appendChild(td);
 
 	  var search = document.createElement('input');
+	  // search.type = 'button';
 	  this.dom.search = search;
 	  search.oninput = function (event) {
 	    searchBox._onDelayedSearch(event);
@@ -3323,6 +3842,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  tr.appendChild(td);
 
 	  var searchNext = document.createElement('button');
+	  searchNext.type = 'button';
 	  searchNext.title = 'Next result (Enter)';
 	  searchNext.className = 'jsoneditor-next';
 	  searchNext.onclick = function () {
@@ -3333,6 +3853,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  tr.appendChild(td);
 
 	  var searchPrevious = document.createElement('button');
+	  searchPrevious.type = 'button';
 	  searchPrevious.title = 'Previous result (Shift+Enter)';
 	  searchPrevious.className = 'jsoneditor-previous';
 	  searchPrevious.onclick = function () {
@@ -3464,19 +3985,30 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	  var value = this.dom.search.value;
 	  var text = (value.length > 0) ? value : undefined;
-	  if (text != this.lastText || forceSearch) {
+	  if (text !== this.lastText || forceSearch) {
 	    // only search again when changed
 	    this.lastText = text;
 	    this.results = this.editor.search(text);
-	    this._setActiveResult(undefined);
+	    var MAX_SEARCH_RESULTS = this.results[0]
+	        ? this.results[0].node.MAX_SEARCH_RESULTS
+	        : Infinity;
+
+	    this._setActiveResult(0, false);
 
 	    // display search results
-	    if (text != undefined) {
+	    if (text !== undefined) {
 	      var resultCount = this.results.length;
-	      switch (resultCount) {
-	        case 0: this.dom.results.innerHTML = 'no&nbsp;results'; break;
-	        case 1: this.dom.results.innerHTML = '1&nbsp;result'; break;
-	        default: this.dom.results.innerHTML = resultCount + '&nbsp;results'; break;
+	      if (resultCount === 0) {
+	        this.dom.results.innerHTML = 'no&nbsp;results';
+	      }
+	      else if (resultCount === 1) {
+	        this.dom.results.innerHTML = '1&nbsp;result';
+	      }
+	      else if (resultCount > MAX_SEARCH_RESULTS) {
+	        this.dom.results.innerHTML = MAX_SEARCH_RESULTS + '+&nbsp;results';
+	      }
+	      else {
+	        this.dom.results.innerHTML = resultCount + '&nbsp;results';
 	      }
 	    }
 	    else {
@@ -3561,6 +4093,16 @@ return /******/ (function(modules) { // webpackBootstrap
 	'use strict';
 
 	var util = __webpack_require__(4);
+	var translate = __webpack_require__(8).translate;
+
+	/**
+	 * Node.getRootNode shim
+	 * @param  {Node} node node to check
+	 * @return {Node}      node's rootNode or `window` if there is ShadowDOM is not supported.
+	 */
+	function getRootNode(node){
+	    return node.getRootNode && node.getRootNode() || window;
+	}
 
 	/**
 	 * A context menu
@@ -3602,6 +4144,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	  // create a (non-visible) button to set the focus to the menu
 	  var focusButton = document.createElement('button');
+	  focusButton.type = 'button';
 	  dom.focusButton = focusButton;
 	  var li = document.createElement('li');
 	  li.style.overflow = 'hidden';
@@ -3628,6 +4171,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	        // create a button in the menu item
 	        var button = document.createElement('button');
+	        button.type = 'button';
 	        button.className = item.className;
 	        domItem.button = button;
 	        if (item.title) {
@@ -3648,7 +4192,11 @@ return /******/ (function(modules) { // webpackBootstrap
 	          var divIcon = document.createElement('div');
 	          divIcon.className = 'jsoneditor-icon';
 	          button.appendChild(divIcon);
-	          button.appendChild(document.createTextNode(item.text));
+	          var divText = document.createElement('div');
+	          divText.className = 'jsoneditor-text' +
+	              (item.click ? '' : ' jsoneditor-right-margin');
+	          divText.appendChild(document.createTextNode(item.text));
+	          button.appendChild(divText);
 
 	          var buttonSubmenu;
 	          if (item.click) {
@@ -3656,6 +4204,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            button.className += ' jsoneditor-default';
 
 	            var buttonExpand = document.createElement('button');
+	            buttonExpand.type = 'button';
 	            domItem.buttonExpand = buttonExpand;
 	            buttonExpand.className = 'jsoneditor-expand';
 	            buttonExpand.innerHTML = '<div class="jsoneditor-expand"></div>';
@@ -3694,7 +4243,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	        else {
 	          // no submenu, just a button with clickhandler
-	          button.innerHTML = '<div class="jsoneditor-icon"></div>' + item.text;
+	          button.innerHTML = '<div class="jsoneditor-icon"></div>' +
+	              '<div class="jsoneditor-text">' + translate(item.text) + '</div>';
 	        }
 
 	        domItems.push(domItem);
@@ -3754,8 +4304,12 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	  // determine whether to display the menu below or above the anchor
 	  var showBelow = true;
+	  var parent = anchor.parentNode;
+	  var anchorRect = anchor.getBoundingClientRect();
+	  var parentRect = parent.getBoundingClientRect()
+
 	  if (contentWindow) {
-	    var anchorRect = anchor.getBoundingClientRect();
+	    
 	    var contentRect = contentWindow.getBoundingClientRect();
 
 	    if (anchorRect.bottom + this.maxHeight < contentRect.bottom) {
@@ -3770,29 +4324,34 @@ return /******/ (function(modules) { // webpackBootstrap
 	    }
 	  }
 
+	  var leftGap = anchorRect.left - parentRect.left;
+	  var topGap = anchorRect.top - parentRect.top;
+
 	  // position the menu
 	  if (showBelow) {
 	    // display the menu below the anchor
 	    var anchorHeight = anchor.offsetHeight;
-	    this.dom.menu.style.left = '0px';
-	    this.dom.menu.style.top = anchorHeight + 'px';
+	    this.dom.menu.style.left = leftGap + 'px';
+	    this.dom.menu.style.top = topGap + anchorHeight + 'px';
 	    this.dom.menu.style.bottom = '';
 	  }
 	  else {
 	    // display the menu above the anchor
-	    this.dom.menu.style.left = '0px';
-	    this.dom.menu.style.top = '';
+	    this.dom.menu.style.left = leftGap + 'px';
+	    this.dom.menu.style.top = topGap + 'px';
 	    this.dom.menu.style.bottom = '0px';
 	  }
 
+	  // find the root node of the page (window, or a shadow dom root element)
+	  this.rootNode = getRootNode(anchor);
+
 	  // attach the menu to the parent of the anchor
-	  var parent = anchor.parentNode;
 	  parent.insertBefore(this.dom.root, parent.firstChild);
 
 	  // create and attach event listeners
 	  var me = this;
 	  var list = this.dom.list;
-	  this.eventListeners.mousedown = util.addEventListener(window, 'mousedown', function (event) {
+	  this.eventListeners.mousedown = util.addEventListener(this.rootNode, 'mousedown', function (event) {
 	    // hide menu on click outside of the menu
 	    var target = event.target;
 	    if ((target != list) && !me._isChildOf(target, list)) {
@@ -3801,7 +4360,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	      event.preventDefault();
 	    }
 	  });
-	  this.eventListeners.keydown = util.addEventListener(window, 'keydown', function (event) {
+	  this.eventListeners.keydown = util.addEventListener(this.rootNode, 'keydown', function (event) {
 	    me._onKeyDown(event);
 	  });
 
@@ -3836,7 +4395,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    if (this.eventListeners.hasOwnProperty(name)) {
 	      var fn = this.eventListeners[name];
 	      if (fn) {
-	        util.removeEventListener(window, name, fn);
+	        util.removeEventListener(this.rootNode, name, fn);
 	      }
 	      delete this.eventListeners[name];
 	    }
@@ -3878,7 +4437,11 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var height = ul.clientHeight; // force a reflow in Firefox
 	    setTimeout(function () {
 	      if (me.expandedItem == domItem) {
-	        ul.style.height = (ul.childNodes.length * 24) + 'px';
+	        var childsHeight = 0;
+	        for (var i = 0; i < ul.childNodes.length; i++) {
+	          childsHeight += ul.childNodes[i].clientHeight;
+	        }
+	        ul.style.height = childsHeight + 'px';
 	        ul.style.padding = '5px 10px';
 	      }
 	    }, 0);
@@ -4019,14 +4582,331 @@ return /******/ (function(modules) { // webpackBootstrap
 
 /***/ },
 /* 8 */
+/***/ function(module, exports) {
+
+	'use strict';
+
+	var _locales = ['en', 'pt-BR'];
+	var _defs = {
+	    en: {
+	        'array': 'Array',
+	        'auto': 'Auto',
+	        'appendText': 'Append',
+	        'appendTitle': 'Append a new field with type \'auto\' after this field (Ctrl+Shift+Ins)',
+	        'appendSubmenuTitle': 'Select the type of the field to be appended',
+	        'appendTitleAuto': 'Append a new field with type \'auto\' (Ctrl+Shift+Ins)',
+	        'ascending': 'Ascending',
+	        'ascendingTitle': 'Sort the childs of this ${type} in ascending order',
+	        'actionsMenu': 'Click to open the actions menu (Ctrl+M)',
+	        'collapseAll': 'Collapse all fields',
+	        'descending': 'Descending',
+	        'descendingTitle': 'Sort the childs of this ${type} in descending order',
+	        'drag': 'Drag to move this field (Alt+Shift+Arrows)',
+	        'duplicateKey': 'duplicate key',
+	        'duplicateText': 'Duplicate',
+	        'duplicateTitle': 'Duplicate selected fields (Ctrl+D)',
+	        'duplicateField': 'Duplicate this field (Ctrl+D)',
+	        'empty': 'empty',
+	        'expandAll': 'Expand all fields',
+	        'expandTitle': 'Click to expand/collapse this field (Ctrl+E). \n' +
+	            'Ctrl+Click to expand/collapse including all childs.',
+	        'insert': 'Insert',
+	        'insertTitle': 'Insert a new field with type \'auto\' before this field (Ctrl+Ins)',
+	        'insertSub': 'Select the type of the field to be inserted',
+	        'object': 'Object',
+	        'ok': 'Ok',
+	        'redo': 'Redo (Ctrl+Shift+Z)',
+	        'removeText': 'Remove',
+	        'removeTitle': 'Remove selected fields (Ctrl+Del)',
+	        'removeField': 'Remove this field (Ctrl+Del)',
+	        'selectNode': 'Select a node...',
+	        'showAll': 'show all',
+	        'showMore': 'show more',
+	        'showMoreStatus': 'displaying ${visibleChilds} of ${totalChilds} items.',
+	        'sort': 'Sort',
+	        'sortTitle': 'Sort the childs of this ',
+	        'sortFieldLabel': 'Field:',
+	        'sortDirectionLabel': 'Direction:',
+	        'sortFieldTitle': 'Select the nested field by which to sort the array or object',
+	        'sortAscending': 'Ascending',
+	        'sortAscendingTitle': 'Sort the selected field in ascending order',
+	        'sortDescending': 'Descending',
+	        'sortDescendingTitle': 'Sort the selected field in descending order',
+	        'string': 'String',
+	        'type': 'Type',
+	        'typeTitle': 'Change the type of this field',
+	        'openUrl': 'Ctrl+Click or Ctrl+Enter to open url in new window',
+	        'undo': 'Undo last action (Ctrl+Z)',
+	        'validationCannotMove': 'Cannot move a field into a child of itself',
+	        'autoType': 'Field type "auto". ' +
+	            'The field type is automatically determined from the value ' +
+	            'and can be a string, number, boolean, or null.',
+	        'objectType': 'Field type "object". ' +
+	            'An object contains an unordered set of key/value pairs.',
+	        'arrayType': 'Field type "array". ' +
+	            'An array contains an ordered collection of values.',
+	        'stringType': 'Field type "string". ' +
+	            'Field type is not determined from the value, ' +
+	            'but always returned as string.'
+	    },
+	    'pt-BR': {
+	        'array': 'Lista',
+	        'auto': 'Automatico',
+	        'appendText': 'Adicionar',
+	        'appendTitle': 'Adicionar novo campo com tipo \'auto\' depois deste campo (Ctrl+Shift+Ins)',
+	        'appendSubmenuTitle': 'Selecione o tipo do campo a ser adicionado',
+	        'appendTitleAuto': 'Adicionar novo campo com tipo \'auto\' (Ctrl+Shift+Ins)',
+	        'ascending': 'Ascendente',
+	        'ascendingTitle': 'Organizar filhor do tipo ${type} em crescente',
+	        'actionsMenu': 'Clique para abrir o menu de ações (Ctrl+M)',
+	        'collapseAll': 'Fechar todos campos',
+	        'descending': 'Descendente',
+	        'descendingTitle': 'Organizar o filhos do tipo ${type} em decrescente',
+	        'duplicateKey': 'chave duplicada',
+	        'drag': 'Arraste para mover este campo (Alt+Shift+Arrows)',
+	        'duplicateText': 'Duplicar',
+	        'duplicateTitle': 'Duplicar campos selecionados (Ctrl+D)',
+	        'duplicateField': 'Duplicar este campo (Ctrl+D)',
+	        'empty': 'vazio',
+	        'expandAll': 'Expandir todos campos',
+	        'expandTitle': 'Clique para expandir/encolher este campo (Ctrl+E). \n' +
+	            'Ctrl+Click para expandir/encolher incluindo todos os filhos.',
+	        'insert': 'Inserir',
+	        'insertTitle': 'Inserir um novo campo do tipo \'auto\' antes deste campo (Ctrl+Ins)',
+	        'insertSub': 'Selecionar o tipo de campo a ser inserido',
+	        'object': 'Objeto',
+	        'ok': 'Ok',
+	        'redo': 'Refazer (Ctrl+Shift+Z)',
+	        'removeText': 'Remover',
+	        'removeTitle': 'Remover campos selecionados (Ctrl+Del)',
+	        'removeField': 'Remover este campo (Ctrl+Del)',
+	        // TODO: correctly translate selectNode
+	        'selectNode': 'Select a node...',
+	        // TODO: correctly translate showAll
+	        'showAll': 'mostre tudo',
+	        // TODO: correctly translate showMore
+	        'showMore': 'mostre mais',
+	        // TODO: correctly translate showMoreStatus
+	        'showMoreStatus': 'exibindo ${visibleChilds} de ${totalChilds} itens.',
+	        'sort': 'Organizar',
+	        'sortTitle': 'Organizar os filhos deste ',
+	        // TODO: correctly translate sortFieldLabel
+	        'sortFieldLabel': 'Field:',
+	        // TODO: correctly translate sortDirectionLabel
+	        'sortDirectionLabel': 'Direction:',
+	        // TODO: correctly translate sortFieldTitle
+	        'sortFieldTitle': 'Select the nested field by which to sort the array or object',
+	        // TODO: correctly translate sortAscending
+	        'sortAscending': 'Ascending',
+	        // TODO: correctly translate sortAscendingTitle
+	        'sortAscendingTitle': 'Sort the selected field in ascending order',
+	        // TODO: correctly translate sortDescending
+	        'sortDescending': 'Descending',
+	        // TODO: correctly translate sortDescendingTitle
+	        'sortDescendingTitle': 'Sort the selected field in descending order',
+	        'string': 'Texto',
+	        'type': 'Tipo',
+	        'typeTitle': 'Mudar o tipo deste campo',
+	        'openUrl': 'Ctrl+Click ou Ctrl+Enter para abrir link em nova janela',
+	        'undo': 'Desfazer último ação (Ctrl+Z)',
+	        'validationCannotMove': 'Não pode mover um campo como filho dele mesmo',
+	        'autoType': 'Campo do tipo "auto". ' +
+	            'O tipo do campo é determinao automaticamente a partir do seu valor ' +
+	            'e pode ser texto, número, verdade/falso ou nulo.',
+	        'objectType': 'Campo do tipo "objeto". ' +
+	            'Um objeto contém uma lista de pares com chave e valor.',
+	        'arrayType': 'Campo do tipo "lista". ' +
+	            'Uma lista contem uma coleção de valores ordenados.',
+	        'stringType': 'Campo do tipo "string". ' +
+	            'Campo do tipo nao é determinado através do seu valor, ' +
+	            'mas sempre retornara um texto.'
+	    }
+	};
+
+	var _defaultLang = 'en';
+	var _lang;
+	var userLang = navigator.language || navigator.userLanguage;
+	_lang = _locales.find(function (l) {
+	    return l === userLang;
+	});
+	if (!_lang) {
+	    _lang = _defaultLang;
+	}
+
+	module.exports = {
+	    // supported locales
+	    _locales: _locales,
+	    _defs: _defs,
+	    _lang: _lang,
+	    setLanguage: function (lang) {
+	        if (!lang) {
+	            return;
+	        }
+	        var langFound = _locales.find(function (l) {
+	            return l === lang;
+	        });
+	        if (langFound) {
+	            _lang = langFound;
+	        } else {
+	            console.error('Language not found');
+	        }
+	    },
+	    setLanguages: function (languages) {
+	        if (!languages) {
+	            return;
+	        }
+	        for (var key in languages) {
+	            var langFound = _locales.find(function (l) {
+	                return l === key;
+	            });
+	            if (!langFound) {
+	                _locales.push(key);
+	            }
+	            _defs[key] = Object.assign({}, _defs[_defaultLang], _defs[key], languages[key]);
+	        }
+	    },
+	    translate: function (key, data, lang) {
+	        if (!lang) {
+	            lang = _lang;
+	        }
+	        var text = _defs[lang][key];
+	        if (data) {
+	            for (key in data) {
+	                text = text.replace('${' + key + '}', data[key]);
+	            }
+	        }
+	        return text || key;
+	    }
+	};
+
+/***/ },
+/* 9 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var naturalSort = __webpack_require__(9);
 	var ContextMenu = __webpack_require__(7);
-	var appendNodeFactory = __webpack_require__(10);
+	var translate = __webpack_require__(8).translate;
+
+	/**
+	 * Creates a component that visualize path selection in tree based editors
+	 * @param {HTMLElement} container 
+	 * @constructor
+	 */
+	function TreePath(container) {
+	  if (container) {
+	    this.path = document.createElement('div');
+	    this.path.className = 'jsoneditor-treepath';
+	    container.appendChild(this.path);
+	    this.reset();
+	  }
+	}
+
+	/**
+	 * Reset component to initial status
+	 */
+	TreePath.prototype.reset = function () {
+	  this.path.innerHTML = translate('selectNode');
+	};
+
+	/**
+	 * Renders the component UI according to a given path objects
+	 * @param {Array<{name: String, childs: Array}>} pathObjs a list of path objects
+	 * 
+	 */
+	TreePath.prototype.setPath = function (pathObjs) {
+	  var me = this;
+
+	  this.path.innerHTML = '';
+
+	  if (pathObjs && pathObjs.length) {
+	    pathObjs.forEach(function (pathObj, idx) {
+	      var pathEl = document.createElement('span');
+	      var sepEl;
+	      pathEl.className = 'jsoneditor-treepath-element';
+	      pathEl.innerText = pathObj.name;
+	      pathEl.onclick = _onSegmentClick.bind(me, pathObj);
+	  
+	      me.path.appendChild(pathEl);
+
+	      if (pathObj.children.length) {
+	        sepEl = document.createElement('span');
+	        sepEl.className = 'jsoneditor-treepath-seperator';
+	        sepEl.innerHTML = '&#9658;';
+
+	        sepEl.onclick = function () {
+	          var items = [];
+	          pathObj.children.forEach(function (child) {
+	            items.push({
+	              'text': child.name,
+	              'className': 'jsoneditor-type-modes' + (pathObjs[idx + 1] + 1 && pathObjs[idx + 1].name === child.name ? ' jsoneditor-selected' : ''),
+	              'click': _onContextMenuItemClick.bind(me, pathObj, child.name)
+	            });
+	          });
+	          var menu = new ContextMenu(items);
+	          menu.show(sepEl);
+	        };
+
+	        me.path.appendChild(sepEl, me.container);
+	      }
+
+	      if(idx === pathObjs.length - 1) {
+	        var leftRectPos = (sepEl || pathEl).getBoundingClientRect().left;
+	        if(me.path.offsetWidth < leftRectPos) {
+	          me.path.scrollLeft = leftRectPos;
+	        }
+	      }
+	    });
+	  }
+
+	  function _onSegmentClick(pathObj) {
+	    if (this.selectionCallback) {
+	      this.selectionCallback(pathObj);
+	    }
+	  }
+
+	  function _onContextMenuItemClick(pathObj, selection) {
+	    if (this.contextMenuCallback) {
+	      this.contextMenuCallback(pathObj, selection);
+	    }
+	  }
+	};
+
+	/**
+	 * set a callback function for selection of path section
+	 * @param {Function} callback function to invoke when section is selected
+	 */
+	TreePath.prototype.onSectionSelected = function (callback) {
+	  if (typeof callback === 'function') {
+	    this.selectionCallback = callback;      
+	  }
+	};
+
+	/**
+	 * set a callback function for selection of path section
+	 * @param {Function} callback function to invoke when section is selected
+	 */
+	TreePath.prototype.onContextMenuItemSelected = function (callback) {
+	  if (typeof callback === 'function') {
+	    this.contextMenuCallback = callback;
+	  }
+	};
+
+	module.exports = TreePath;
+
+/***/ },
+/* 10 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+
+	var naturalSort = __webpack_require__(11);
+	var picoModal = __webpack_require__(12);
+	var ContextMenu = __webpack_require__(7);
+	var appendNodeFactory = __webpack_require__(13);
+	var showMoreNodeFactory = __webpack_require__(14);
 	var util = __webpack_require__(4);
+	var translate = __webpack_require__(8).translate;
 
 	/**
 	 * @constructor Node
@@ -4060,6 +4940,15 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	// debounce interval for keyboard input in milliseconds
 	Node.prototype.DEBOUNCE_INTERVAL = 150;
+
+	// search will stop iterating as soon as the max is reached
+	Node.prototype.MAX_SEARCH_RESULTS = 999;
+
+	// number of visible childs rendered initially in large arrays/objects (with a "show more" button to show more)
+	Node.prototype.MAX_VISIBLE_CHILDS = 100;
+
+	// default value for the max visible childs of large arrays
+	Node.prototype.visibleChilds = Node.prototype.MAX_VISIBLE_CHILDS;
 
 	/**
 	 * Determine whether the field and/or value of this node are editable
@@ -4103,18 +4992,60 @@ return /******/ (function(modules) { // webpackBootstrap
 	  var node = this;
 	  var path = [];
 	  while (node) {
-	    var field = !node.parent
-	        ? undefined  // do not add an (optional) field name of the root node
-	        :  (node.parent.type != 'array')
-	            ? node.field
-	            : node.index;
-
+	    var field = node.getName();
 	    if (field !== undefined) {
 	      path.unshift(field);
 	    }
 	    node = node.parent;
 	  }
 	  return path;
+	};
+
+	/**
+	 * Get node serializable name
+	 * @returns {String|Number}
+	 */
+	Node.prototype.getName = function () {
+	 return !this.parent
+	 ? undefined  // do not add an (optional) field name of the root node
+	 :  (this.parent.type != 'array')
+	     ? this.field
+	     : this.index;
+	};
+
+	/**
+	 * Find child node by serializable path
+	 * @param {Array<String>} path 
+	 */
+	Node.prototype.findNodeByPath = function (path) {
+	  if (!path) {
+	    return;
+	  }
+
+	  if (path.length == 0) {
+	    return this;
+	  }
+
+	  if (path.length && this.childs && this.childs.length) {
+	    for (var i=0; i < this.childs.length; ++i) {
+	      if (('' + path[0]) === ('' + this.childs[i].getName())) {
+	        return this.childs[i].findNodeByPath(path.slice(1));
+	      }
+	    }
+	  }
+	};
+
+	/**
+	 * @typedef {{value: String|Object|Number|Boolean, path: Array.<String|Number>}} SerializableNode
+	 * 
+	 * Returns serializable representation for the node
+	 * @return {SerializedNode}
+	 */
+	Node.prototype.serialize = function () {
+	  return {
+	    value: this.getValue(),
+	    path: this.getPath()
+	  };
 	};
 
 	/**
@@ -4170,12 +5101,21 @@ return /******/ (function(modules) { // webpackBootstrap
 	 *                        icon will set focus to the invalid child node.
 	 */
 	Node.prototype.setError = function (error, child) {
-	  // ensure the dom exists
-	  this.getDom();
-
 	  this.error = error;
+	  this.errorChild = child;
+
+	  if (this.dom && this.dom.tr) {
+	    this.updateError()
+	  }
+	};
+
+	/**
+	 * Render the error
+	 */
+	Node.prototype.updateError = function() {
+	  var error = this.error;
 	  var tdError = this.dom.tdError;
-	  if (error) {
+	  if (error && this.dom && this.dom.tr && !tdError) {
 	    if (!tdError) {
 	      tdError = document.createElement('td');
 	      this.dom.tdError = tdError;
@@ -4187,6 +5127,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    popover.appendChild(document.createTextNode(error.message));
 
 	    var button = document.createElement('button');
+	    button.type = 'button';
 	    button.className = 'jsoneditor-schema-error';
 	    button.appendChild(popover);
 
@@ -4210,6 +5151,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    // when clicking the error icon, expand all nodes towards the invalid
 	    // child node, and set focus to the child node
+	    var child = this.errorChild;
 	    if (child) {
 	      button.onclick = function showInvalidNode() {
 	        child.findParents().forEach(function (parent) {
@@ -4283,7 +5225,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	 *                         'array', 'object', or 'string'
 	 */
 	Node.prototype.setValue = function(value, type) {
-	  var childValue, child;
+	  var childValue, child, visible;
 
 	  // first clear all current childs (if any)
 	  var childs = this.childs;
@@ -4319,7 +5261,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	        child = new Node(this.editor, {
 	          value: childValue
 	        });
-	        this.appendChild(child);
+	        visible = i < this.MAX_VISIBLE_CHILDS;
+	        this.appendChild(child, visible);
 	      }
 	    }
 	    this.value = '';
@@ -4327,6 +5270,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  else if (this.type == 'object') {
 	    // object
 	    this.childs = [];
+	    i = 0;
 	    for (var childField in value) {
 	      if (value.hasOwnProperty(childField)) {
 	        childValue = value[childField];
@@ -4336,15 +5280,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	            field: childField,
 	            value: childValue
 	          });
-	          this.appendChild(child);
+	          visible = i < this.MAX_VISIBLE_CHILDS;
+	          this.appendChild(child, visible);
 	        }
+	        i++;
 	      }
 	    }
 	    this.value = '';
 
 	    // sort object keys
 	    if (this.editor.options.sortObjectKeys === true) {
-	      this.sort('asc');
+	      this.sort([], 'asc');
 	    }
 	  }
 	  else {
@@ -4395,10 +5341,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	};
 
 	/**
-	 * Get path of the root node till the current node
+	 * Get jsonpath of the current node
 	 * @return {Node[]} Returns an array with nodes
 	 */
-	Node.prototype.getNodePath = function() {
+	Node.prototype.getNodePath = function () {
 	  var path = this.parent ? this.parent.getNodePath() : [];
 	  path.push(this);
 	  return path;
@@ -4419,6 +5365,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  clone.value = this.value;
 	  clone.valueInnerText = this.valueInnerText;
 	  clone.expanded = this.expanded;
+	  clone.visibleChilds = this.visibleChilds;
 
 	  if (this.childs) {
 	    // an object or array
@@ -4506,40 +5453,67 @@ return /******/ (function(modules) { // webpackBootstrap
 	  var table = tr ? tr.parentNode : undefined;
 	  if (table) {
 	    // show row with append button
-	    var append = this.getAppend();
-	    var nextTr = tr.nextSibling;
-	    if (nextTr) {
-	      table.insertBefore(append, nextTr);
-	    }
-	    else {
-	      table.appendChild(append);
+	    var append = this.getAppendDom();
+	    if (!append.parentNode) {
+	      var nextTr = tr.nextSibling;
+	      if (nextTr) {
+	        table.insertBefore(append, nextTr);
+	      }
+	      else {
+	        table.appendChild(append);
+	      }
 	    }
 
 	    // show childs
-	    this.childs.forEach(function (child) {
-	      table.insertBefore(child.getDom(), append);
+	    var iMax = Math.min(this.childs.length, this.visibleChilds);
+	    var nextTr = this._getNextTr();
+	    for (var i = 0; i < iMax; i++) {
+	      var child = this.childs[i];
+	      if (!child.getDom().parentNode) {
+	        table.insertBefore(child.getDom(), nextTr);
+	      }
 	      child.showChilds();
-	    });
+	    }
+
+	    // show "show more childs" if limited
+	    var showMore = this.getShowMoreDom();
+	    var nextTr = this._getNextTr();
+	    if (!showMore.parentNode) {
+	      table.insertBefore(showMore, nextTr);
+	    }
+	    this.showMore.updateDom(); // to update the counter
+	  }
+	};
+
+	Node.prototype._getNextTr = function() {
+	  if (this.showMore && this.showMore.getDom().parentNode) {
+	    return this.showMore.getDom();
+	  }
+
+	  if (this.append && this.append.getDom().parentNode) {
+	    return this.append.getDom();
 	  }
 	};
 
 	/**
 	 * Hide the node with all its childs
+	 * @param {{resetVisibleChilds: boolean}} [options]
 	 */
-	Node.prototype.hide = function() {
+	Node.prototype.hide = function(options) {
 	  var tr = this.dom.tr;
 	  var table = tr ? tr.parentNode : undefined;
 	  if (table) {
 	    table.removeChild(tr);
 	  }
-	  this.hideChilds();
+	  this.hideChilds(options);
 	};
 
 
 	/**
 	 * Recursively hide all childs
+	 * @param {{resetVisibleChilds: boolean}} [options]
 	 */
-	Node.prototype.hideChilds = function() {
+	Node.prototype.hideChilds = function(options) {
 	  var childs = this.childs;
 	  if (!childs) {
 	    return;
@@ -4549,7 +5523,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  }
 
 	  // hide append row
-	  var append = this.getAppend();
+	  var append = this.getAppendDom();
 	  if (append.parentNode) {
 	    append.parentNode.removeChild(append);
 	  }
@@ -4558,6 +5532,31 @@ return /******/ (function(modules) { // webpackBootstrap
 	  this.childs.forEach(function (child) {
 	    child.hide();
 	  });
+
+	  // hide "show more" row
+	  var showMore = this.getShowMoreDom();
+	  if (showMore.parentNode) {
+	    showMore.parentNode.removeChild(showMore);
+	  }
+
+	  // reset max visible childs
+	  if (!options || options.resetVisibleChilds) {
+	    delete this.visibleChilds;
+	  }
+	};
+
+
+	/**
+	 * Goes through the path from the node to the root and ensures that it is expanded
+	 */
+	Node.prototype.expandTo = function() {
+	  var currentNode = this.parent;
+	  while (currentNode) {
+	    if (!currentNode.expanded) {
+	      currentNode.expand();
+	    }
+	    currentNode = currentNode.parent;
+	  }
 	};
 
 
@@ -4565,8 +5564,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	 * Add a new child to the node.
 	 * Only applicable when Node value is of type array or object
 	 * @param {Node} node
+	 * @param {boolean} [visible] If true, the child will be rendered
 	 */
-	Node.prototype.appendChild = function(node) {
+	Node.prototype.appendChild = function(node, visible) {
 	  if (this._hasChilds()) {
 	    // adjust the link to the parent
 	    node.setParent(this);
@@ -4576,16 +5576,18 @@ return /******/ (function(modules) { // webpackBootstrap
 	    }
 	    this.childs.push(node);
 
-	    if (this.expanded) {
+	    if (this.expanded && visible !== false) {
 	      // insert into the DOM, before the appendRow
 	      var newTr = node.getDom();
-	      var appendTr = this.getAppend();
+	      var appendTr = this.getAppendDom();
 	      var table = appendTr ? appendTr.parentNode : undefined;
 	      if (appendTr && table) {
 	        table.insertBefore(newTr, appendTr);
 	      }
 
 	      node.showChilds();
+
+	      this.visibleChilds++;
 	    }
 
 	    this.updateDom({'updateIndexes': true});
@@ -4616,7 +5618,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	    }
 
 	    if (beforeNode instanceof AppendNode) {
-	      this.appendChild(node);
+	      // the this.childs.length + 1 is to reckon with the node that we're about to add
+	      if (this.childs.length + 1 > this.visibleChilds) {
+	        var lastVisibleNode = this.childs[this.visibleChilds - 1];
+	        this.insertBefore(node, lastVisibleNode);
+	      }
+	      else {
+	        this.appendChild(node);
+	      }
 	    }
 	    else {
 	      this.insertBefore(node, beforeNode);
@@ -4657,6 +5666,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	 */
 	Node.prototype.insertBefore = function(node, beforeNode) {
 	  if (this._hasChilds()) {
+	    this.visibleChilds++;
+
 	    if (beforeNode == this.append) {
 	      // append to the child nodes
 
@@ -4688,6 +5699,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	      }
 
 	      node.showChilds();
+	      this.showChilds();
 	    }
 
 	    this.updateDom({'updateIndexes': true});
@@ -4716,13 +5728,16 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	/**
 	 * Search in this node
-	 * The node will be expanded when the text is found one of its childs, else
-	 * it will be collapsed. Searches are case insensitive.
+	 * Searches are case insensitive.
 	 * @param {String} text
+	 * @param {Node[]} [results] Array where search results will be added
+	 *                           used to count and limit the results whilst iterating
 	 * @return {Node[]} results  Array with nodes containing the search text
 	 */
-	Node.prototype.search = function(text) {
-	  var results = [];
+	Node.prototype.search = function(text, results) {
+	  if (!Array.isArray(results)) {
+	    results = [];
+	  }
 	  var index;
 	  var search = text ? text.toLowerCase() : undefined;
 
@@ -4731,10 +5746,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	  delete this.searchValue;
 
 	  // search in field
-	  if (this.field != undefined) {
+	  if (this.field !== undefined && results.length <= this.MAX_SEARCH_RESULTS) {
 	    var field = String(this.field).toLowerCase();
 	    index = field.indexOf(search);
-	    if (index != -1) {
+	    if (index !== -1) {
 	      this.searchField = true;
 	      results.push({
 	        'node': this,
@@ -4752,40 +5767,27 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    // search the nodes childs
 	    if (this.childs) {
-	      var childResults = [];
 	      this.childs.forEach(function (child) {
-	        childResults = childResults.concat(child.search(text));
+	        child.search(text, results);
 	      });
-	      results = results.concat(childResults);
-	    }
-
-	    // update dom
-	    if (search != undefined) {
-	      var recurse = false;
-	      if (childResults.length == 0) {
-	        this.collapse(recurse);
-	      }
-	      else {
-	        this.expand(recurse);
-	      }
 	    }
 	  }
 	  else {
 	    // string, auto
-	    if (this.value != undefined ) {
+	    if (this.value !== undefined  && results.length <= this.MAX_SEARCH_RESULTS) {
 	      var value = String(this.value).toLowerCase();
 	      index = value.indexOf(search);
-	      if (index != -1) {
+	      if (index !== -1) {
 	        this.searchValue = true;
 	        results.push({
 	          'node': this,
 	          'elem': 'value'
 	        });
 	      }
-	    }
 
-	    // update dom
-	    this._updateDomValue();
+	      // update dom
+	      this._updateDomValue();
+	    }
 	  }
 
 	  return results;
@@ -4797,18 +5799,31 @@ return /******/ (function(modules) { // webpackBootstrap
 	 * @param {function(boolean)} [callback]
 	 */
 	Node.prototype.scrollTo = function(callback) {
-	  if (!this.dom.tr || !this.dom.tr.parentNode) {
-	    // if the node is not visible, expand its parents
-	    var parent = this.parent;
-	    var recurse = false;
-	    while (parent) {
-	      parent.expand(recurse);
-	      parent = parent.parent;
-	    }
-	  }
+	  this.expandPathToNode();
 
 	  if (this.dom.tr && this.dom.tr.parentNode) {
 	    this.editor.scrollTo(this.dom.tr.offsetTop, callback);
+	  }
+	};
+
+	/**
+	 * if the node is not visible, expand its parents
+	 */
+	Node.prototype.expandPathToNode = function () {
+	  var node = this;
+	  var recurse = false;
+	  while (node && node.parent) {
+	    // expand visible childs of the parent if needed
+	    var index = node.parent.type === 'array'
+	        ? node.index
+	        : node.parent.childs.indexOf(node);
+	    while (node.parent.visibleChilds < index + 1) {
+	      node.parent.visibleChilds += Node.prototype.MAX_VISIBLE_CHILDS;
+	    }
+
+	    // expand the parent itself
+	    node.parent.expand(recurse);
+	    node = node.parent;
 	  }
 	};
 
@@ -4878,7 +5893,11 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	      case 'value':
 	      default:
-	        if (dom.value && !this._hasChilds()) {
+	        if (dom.select) {
+	          // enum select box
+	          dom.select.focus();
+	        }
+	        else if (dom.value && !this._hasChilds()) {
 	          dom.value.focus();
 	          util.selectContentEditable(dom.value);
 	        }
@@ -4956,7 +5975,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	  // check if this node is not a child of the node to be moved here
 	  if (node.containsNode(this)) {
-	    throw new Error('Cannot move a field into a child of itself');
+	    throw new Error(translate('validationCannotMove'));
 	  }
 
 	  // remove the original node
@@ -4993,7 +6012,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	  if (this.childs) {
 	    var index = this.childs.indexOf(node);
 
-	    if (index != -1) {
+	    if (index !== -1) {
+	      this.visibleChilds--;
+
 	      node.hide();
 
 	      // delete old search results
@@ -5045,7 +6066,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var table = this.dom.tr ? this.dom.tr.parentNode : undefined;
 	    var lastTr;
 	    if (this.expanded) {
-	      lastTr = this.getAppend();
+	      lastTr = this.getAppendDom();
 	    }
 	    else {
 	      lastTr = this.getDom();
@@ -5053,7 +6074,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var nextTr = (lastTr && lastTr.parentNode) ? lastTr.nextSibling : undefined;
 
 	    // hide current field and all its childs
-	    this.hide();
+	    this.hide({ resetVisibleChilds: false });
 	    this.clearDom();
 
 	    // adjust the field and the value
@@ -5168,13 +6189,13 @@ return /******/ (function(modules) { // webpackBootstrap
 	Node.prototype._onChangeValue = function () {
 	  // get current selection, then override the range such that we can select
 	  // the added/removed text on undo/redo
-	  var oldSelection = this.editor.getSelection();
+	  var oldSelection = this.editor.getDomSelection();
 	  if (oldSelection.range) {
 	    var undoDiff = util.textDiff(String(this.value), String(this.previousValue));
 	    oldSelection.range.startOffset = undoDiff.start;
 	    oldSelection.range.endOffset = undoDiff.end;
 	  }
-	  var newSelection = this.editor.getSelection();
+	  var newSelection = this.editor.getDomSelection();
 	  if (newSelection.range) {
 	    var redoDiff = util.textDiff(String(this.previousValue), String(this.value));
 	    newSelection.range.startOffset = redoDiff.start;
@@ -5199,15 +6220,16 @@ return /******/ (function(modules) { // webpackBootstrap
 	Node.prototype._onChangeField = function () {
 	  // get current selection, then override the range such that we can select
 	  // the added/removed text on undo/redo
-	  var oldSelection = this.editor.getSelection();
+	  var oldSelection = this.editor.getDomSelection();
+	  var previous = this.previousField || '';
 	  if (oldSelection.range) {
-	    var undoDiff = util.textDiff(this.field, this.previousField);
+	    var undoDiff = util.textDiff(this.field, previous);
 	    oldSelection.range.startOffset = undoDiff.start;
 	    oldSelection.range.endOffset = undoDiff.end;
 	  }
-	  var newSelection = this.editor.getSelection();
+	  var newSelection = this.editor.getDomSelection();
 	  if (newSelection.range) {
-	    var redoDiff = util.textDiff(this.previousField, this.field);
+	    var redoDiff = util.textDiff(previous, this.field);
 	    newSelection.range.startOffset = redoDiff.start;
 	    newSelection.range.endOffset = redoDiff.end;
 	  }
@@ -5267,7 +6289,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	      domValue.title = this.type + ' containing ' + count + ' items';
 	    }
 	    else if (isUrl && this.editable.value) {
-	      domValue.title = 'Ctrl+Click or Ctrl+Enter to open url in new window';
+	      domValue.title = translate('openUrl');
 	    }
 	    else {
 	      domValue.title = '';
@@ -5439,7 +6461,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var duplicateKeys = [];
 	    for (var i = 0; i < this.childs.length; i++) {
 	      var child = this.childs[i];
-	      if (keys[child.field]) {
+	      if (keys.hasOwnProperty(child.field)) {
 	        duplicateKeys.push(child.field);
 	      }
 	      keys[child.field] = true;
@@ -5454,7 +6476,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            return {
 	              node: node,
 	              error: {
-	                message: 'duplicate key "' + node.field + '"'
+	                message: translate('duplicateKey') + ' "' + node.field + '"'
 	              }
 	            }
 	          });
@@ -5508,9 +6530,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	      // create draggable area
 	      if (this.parent) {
 	        var domDrag = document.createElement('button');
+	        domDrag.type = 'button';
 	        dom.drag = domDrag;
 	        domDrag.className = 'jsoneditor-dragarea';
-	        domDrag.title = 'Drag to move this field (Alt+Shift+Arrows)';
+	        domDrag.title = translate('drag');
 	        tdDrag.appendChild(domDrag);
 	      }
 	    }
@@ -5519,9 +6542,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	    // create context menu
 	    var tdMenu = document.createElement('td');
 	    var menu = document.createElement('button');
+	    menu.type = 'button';
 	    dom.menu = menu;
 	    menu.className = 'jsoneditor-contextmenu';
-	    menu.title = 'Click to open the actions menu (Ctrl+M)';
+	    menu.title = translate('actionsMenu');
 	    tdMenu.appendChild(dom.menu);
 	    dom.tr.appendChild(tdMenu);
 	  }
@@ -5535,6 +6559,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	  this.updateDom({'updateIndexes': true});
 
 	  return dom.tr;
+	};
+
+	/**
+	 * Test whether a Node is rendered and visible
+	 * @returns {boolean}
+	 */
+	Node.prototype.isVisible = function () {
+	  return this.dom && this.dom.tr && this.dom.tr.parentNode || false
 	};
 
 	/**
@@ -5553,7 +6585,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  var firstNode = nodes[0];
 	  var lastNode = nodes[nodes.length - 1];
 	  var draggedNode = Node.getNodeFromTarget(event.target);
-	  var beforeNode = lastNode._nextSibling();
+	  var beforeNode = lastNode.nextSibling();
 	  var editor = firstNode.editor;
 
 	  // in case of multiple selected nodes, offsetY prevents the selection from
@@ -5575,7 +6607,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  editor.highlighter.lock();
 	  editor.drag = {
 	    oldCursor: document.body.style.cursor,
-	    oldSelection: editor.getSelection(),
+	    oldSelection: editor.getDomSelection(),
 	    oldBeforeNode: beforeNode,
 	    mouseX: event.pageX,
 	    offsetY: offsetY,
@@ -5639,7 +6671,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	      }
 	    }
 
-	    if (nodePrev) {
+	    if (nodePrev && nodePrev.isVisible()) {
 	      // check if mouseY is really inside the found node
 	      trPrev = nodePrev.dom.tr;
 	      topPrev = trPrev ? util.getAbsoluteTop(trPrev) : 0;
@@ -5670,16 +6702,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	              util.getAbsoluteTop(trNext.nextSibling) : 0;
 	          heightNext = trNext ? (bottomNext - topFirst) : 0;
 
-	          if (nodeNext.parent.childs.length == nodes.length &&
+	          if (nodeNext &&
+	              nodeNext.parent.childs.length == nodes.length &&
 	              nodeNext.parent.childs[nodes.length - 1] == lastNode) {
 	            // We are about to remove the last child of this parent,
 	            // which will make the parents appendNode visible.
 	            topThis += 27;
 	            // TODO: dangerous to suppose the height of the appendNode a constant of 27 px.
 	          }
-	        }
 
-	        trNext = trNext.nextSibling;
+	          trNext = trNext.nextSibling;
+	        }
 	      }
 	      while (trNext && mouseY > topThis + heightNext);
 
@@ -5691,12 +6724,12 @@ return /******/ (function(modules) { // webpackBootstrap
 	        var levelNext = nodeNext.getLevel();     // level to be
 
 	        // find the best fitting level (move upwards over the append nodes)
-	        trPrev = nodeNext.dom.tr.previousSibling;
+	        trPrev = nodeNext.dom.tr && nodeNext.dom.tr.previousSibling;
 	        while (levelNext < level && trPrev) {
 	          nodePrev = Node.getNodeFromTarget(trPrev);
 
 	          var isDraggedNode = nodes.some(function (node) {
-	            return node === nodePrev || nodePrev._isChildOf(node);
+	            return node === nodePrev || nodePrev.isDescendantOf(node);
 	          });
 
 	          if (isDraggedNode) {
@@ -5723,8 +6756,13 @@ return /******/ (function(modules) { // webpackBootstrap
 	          trPrev = trPrev.previousSibling;
 	        }
 
+	        if (nodeNext instanceof AppendNode && !nodeNext.isVisible() &&
+	            nodeNext.parent.showMore.isVisible()) {
+	          nodeNext = nodeNext._nextNode();
+	        }
+
 	        // move the node when its position is changed
-	        if (trLast.nextSibling != nodeNext.dom.tr) {
+	        if (nodeNext && nodeNext.dom.tr && trLast.nextSibling != nodeNext.dom.tr) {
 	          nodes.forEach(function (node) {
 	            nodeNext.parent.moveBefore(node, nodeNext);
 	          });
@@ -5773,7 +6811,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  var params = {
 	    nodes: nodes,
 	    oldSelection: editor.drag.oldSelection,
-	    newSelection: editor.getSelection(),
+	    newSelection: editor.getDomSelection(),
 	    oldBeforeNode: editor.drag.oldBeforeNode,
 	    newBeforeNode: beforeNode
 	  };
@@ -5808,12 +6846,12 @@ return /******/ (function(modules) { // webpackBootstrap
 	};
 
 	/**
-	 * Test if this node is a child of an other node
+	 * Test if this node is a sescendant of an other node
 	 * @param {Node} node
-	 * @return {boolean} isChild
+	 * @return {boolean} isDescendant
 	 * @private
 	 */
-	Node.prototype._isChildOf = function (node) {
+	Node.prototype.isDescendantOf = function (node) {
 	  var n = this.parent;
 	  while (n) {
 	    if (n == node) {
@@ -5885,6 +6923,10 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    if (this.append) {
 	      this.append.setSelected(selected);
+	    }
+
+	    if (this.showMore) {
+	      this.showMore.setSelected(selected);
 	    }
 
 	    if (this.childs) {
@@ -5991,8 +7033,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	    this._updateDomIndexes();
 	  }
 
+	  // update childs recursively
 	  if (options && options.recurse === true) {
-	    // recurse is true or undefined. update childs recursively
 	    if (this.childs) {
 	      this.childs.forEach(function (child) {
 	        child.updateDom(options);
@@ -6000,9 +7042,19 @@ return /******/ (function(modules) { // webpackBootstrap
 	    }
 	  }
 
+	  // update rendering of error
+	  if (this.error) {
+	    this.updateError()
+	  }
+
 	  // update row with append button
 	  if (this.append) {
 	    this.append.updateDom();
+	  }
+
+	  // update "show more" text at the bottom of large arrays
+	  if (this.showMore) {
+	    this.showMore.updateDom();
 	  }
 	};
 
@@ -6014,7 +7066,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	  //Locating the schema of the node and checking for any enum type
 	  if(this.editor && this.editor.options) {
 	    // find the part of the json schema matching this nodes path
-	    this.schema = Node._findSchema(this.editor.options.schema, this.getPath());
+	    this.schema = this.editor.options.schema 
+	        ? Node._findSchema(this.editor.options.schema, this.getPath())
+	        : null;
 	    if (this.schema) {
 	      this.enum = Node._findEnum(this.schema);
 	    }
@@ -6056,18 +7110,46 @@ return /******/ (function(modules) { // webpackBootstrap
 	 */
 	Node._findSchema = function (schema, path) {
 	  var childSchema = schema;
+	  var foundSchema = childSchema;
 
-	  for (var i = 0; i < path.length && childSchema; i++) {
-	    var key = path[i];
-	    if (typeof key === 'string' && childSchema.properties) {
-	      childSchema = childSchema.properties[key] || null
-	    }
-	    else if (typeof key === 'number' && childSchema.items) {
-	      childSchema = childSchema.items
-	    }
+	  var allSchemas = schema.oneOf || schema.anyOf || schema.allOf;
+	  if (!allSchemas) {
+	    allSchemas = [schema];
 	  }
 
-	  return childSchema
+	  for (var j = 0; j < allSchemas.length; j++) {
+	    childSchema = allSchemas[j];
+
+	    for (var i = 0; i < path.length && childSchema; i++) {
+	      var key = path[i];
+
+	      if (typeof key === 'string' && childSchema.patternProperties && i == path.length - 1) {
+	        for (var prop in childSchema.patternProperties) {
+	          foundSchema = Node._findSchema(childSchema.patternProperties[prop], path.slice(i, path.length));
+	        }
+	      }
+	      else if (childSchema.items && childSchema.items.properties) {
+	        childSchema = childSchema.items.properties[key];
+	        if (childSchema) {
+	          foundSchema = Node._findSchema(childSchema, path.slice(i, path.length));
+	        }
+	      }
+	      else if (typeof key === 'string' && childSchema.properties) {
+	        childSchema = childSchema.properties[key] || null;
+	        if (childSchema) {
+	          foundSchema = Node._findSchema(childSchema, path.slice(i, path.length));
+	        }
+	      }
+	      else if (typeof key === 'number' && childSchema.items) {
+	        childSchema = childSchema.items;
+	        if (childSchema) {
+	          foundSchema = Node._findSchema(childSchema, path.slice(i, path.length));
+	        }
+	      }
+	    }
+
+	  }
+	  return foundSchema
 	};
 
 	/**
@@ -6123,7 +7205,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	      // create a link in case of read-only editor and value containing an url
 	      domValue = document.createElement('a');
 	      domValue.href = this.value;
-	      domValue.target = '_blank';
 	      domValue.innerHTML = this._escapeHTML(this.value);
 	    }
 	    else {
@@ -6146,11 +7227,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	Node.prototype._createDomExpandButton = function () {
 	  // create expand button
 	  var expand = document.createElement('button');
+	  expand.type = 'button';
 	  if (this._hasChilds()) {
 	    expand.className = this.expanded ? 'jsoneditor-expanded' : 'jsoneditor-collapsed';
-	    expand.title =
-	        'Click to expand/collapse this field (Ctrl+E). \n' +
-	        'Ctrl+Click to expand/collapse including all childs.';
+	    expand.title = translate('expandTitle');
 	  }
 	  else {
 	    expand.className = 'jsoneditor-invisible';
@@ -6295,12 +7375,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	      case 'keydown':
 	      case 'mousedown':
 	          // TODO: cleanup
-	        this.editor.selection = this.editor.getSelection();
+	        this.editor.selection = this.editor.getDomSelection();
 	        break;
 
 	      case 'click':
-	        if (event.ctrlKey || !this.editable.value) {
+	        if (event.ctrlKey && this.editable.value) {
+	          // if read-only, we use the regular click behavior of an anchor
 	          if (util.isUrl(this.value)) {
+	            event.preventDefault();
 	            window.open(this.value, '_blank');
 	          }
 	        }
@@ -6344,7 +7426,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	      case 'keydown':
 	      case 'mousedown':
-	        this.editor.selection = this.editor.getSelection();
+	        this.editor.selection = this.editor.getDomSelection();
 	        break;
 
 	      case 'keyup':
@@ -6365,7 +7447,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  // focus
 	  // when clicked in whitespace left or right from the field or value, set focus
 	  var domTree = dom.tree;
-	  if (target == domTree.parentNode && type == 'click' && !event.hasMoved) {
+	  if (domTree && target == domTree.parentNode && type == 'click' && !event.hasMoved) {
 	    var left = (event.offsetX != undefined) ?
 	        (event.offsetX < (this.getLevel() + 1) * 24) :
 	        (event.pageX < util.getAbsoluteLeft(dom.tdSeparator));// for FF
@@ -6505,7 +7587,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    }
 	    else if (altKey && shiftKey && editable) { // Alt + Shift + Arrow left
 	      if (lastNode.expanded) {
-	        var appendDom = lastNode.getAppend();
+	        var appendDom = lastNode.getAppendDom();
 	        nextDom = appendDom ? appendDom.nextSibling : undefined;
 	      }
 	      else {
@@ -6519,8 +7601,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	        if (nextNode && nextNode instanceof AppendNode &&
 	            !(lastNode.parent.childs.length == 1) &&
 	            nextNode2 && nextNode2.parent) {
-	          oldSelection = this.editor.getSelection();
-	          oldBeforeNode = lastNode._nextSibling();
+	          oldSelection = this.editor.getDomSelection();
+	          oldBeforeNode = lastNode.nextSibling();
 
 	          selectedNodes.forEach(function (node) {
 	            nextNode2.parent.moveBefore(node, nextNode2);
@@ -6532,7 +7614,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            oldBeforeNode: oldBeforeNode,
 	            newBeforeNode: nextNode2,
 	            oldSelection: oldSelection,
-	            newSelection: this.editor.getSelection()
+	            newSelection: this.editor.getDomSelection()
 	          });
 	        }
 	      }
@@ -6566,8 +7648,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	      // find the previous node
 	      prevNode = firstNode._previousNode();
 	      if (prevNode && prevNode.parent) {
-	        oldSelection = this.editor.getSelection();
-	        oldBeforeNode = lastNode._nextSibling();
+	        oldSelection = this.editor.getDomSelection();
+	        oldBeforeNode = lastNode.nextSibling();
 
 	        selectedNodes.forEach(function (node) {
 	          prevNode.parent.moveBefore(node, prevNode);
@@ -6579,7 +7661,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	          oldBeforeNode: oldBeforeNode,
 	          newBeforeNode: prevNode,
 	          oldSelection: oldSelection,
-	          newSelection: this.editor.getSelection()
+	          newSelection: this.editor.getDomSelection()
 	        });
 	      }
 	      handled = true;
@@ -6599,11 +7681,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	      var prevDom = dom.previousSibling;
 	      if (prevDom) {
 	        prevNode = Node.getNodeFromTarget(prevDom);
-	        if (prevNode && prevNode.parent &&
-	            (prevNode instanceof AppendNode)
-	            && !prevNode.isVisible()) {
-	          oldSelection = this.editor.getSelection();
-	          oldBeforeNode = lastNode._nextSibling();
+	        if (prevNode && prevNode.parent && !prevNode.isVisible()) {
+	          oldSelection = this.editor.getDomSelection();
+	          oldBeforeNode = lastNode.nextSibling();
 
 	          selectedNodes.forEach(function (node) {
 	            prevNode.parent.moveBefore(node, prevNode);
@@ -6615,7 +7695,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            oldBeforeNode: oldBeforeNode,
 	            newBeforeNode: prevNode,
 	            oldSelection: oldSelection,
-	            newSelection: this.editor.getSelection()
+	            newSelection: this.editor.getDomSelection()
 	          });
 	        }
 	      }
@@ -6653,10 +7733,20 @@ return /******/ (function(modules) { // webpackBootstrap
 	      else {
 	        nextNode = lastNode._nextNode();
 	      }
+
+	      // when the next node is not visible, we've reached the "showMore" buttons
+	      if (nextNode && !nextNode.isVisible()) {
+	        nextNode = nextNode.parent.showMore;
+	      }
+
+	      if (nextNode && nextNode instanceof AppendNode) {
+	        nextNode = lastNode;
+	      }
+
 	      var nextNode2 = nextNode && (nextNode._nextNode() || nextNode.parent.append);
 	      if (nextNode2 && nextNode2.parent) {
-	        oldSelection = this.editor.getSelection();
-	        oldBeforeNode = lastNode._nextSibling();
+	        oldSelection = this.editor.getDomSelection();
+	        oldBeforeNode = lastNode.nextSibling();
 
 	        selectedNodes.forEach(function (node) {
 	          nextNode2.parent.moveBefore(node, nextNode2);
@@ -6668,7 +7758,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	          oldBeforeNode: oldBeforeNode,
 	          newBeforeNode: nextNode2,
 	          oldSelection: oldSelection,
-	          newSelection: this.editor.getSelection()
+	          newSelection: this.editor.getDomSelection()
 	        });
 	      }
 	      handled = true;
@@ -6726,9 +7816,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	    editor.highlighter.unhighlight();
 
 	    // adjust the focus
-	    var oldSelection = editor.getSelection();
+	    var oldSelection = editor.getDomSelection();
 	    Node.blurNodes(nodes);
-	    var newSelection = editor.getSelection();
+	    var newSelection = editor.getDomSelection();
 
 	    // remove the nodes
 	    nodes.forEach(function (node) {
@@ -6765,7 +7855,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    editor.deselect(editor.multiselection.nodes);
 
 	    // duplicate the nodes
-	    var oldSelection = editor.getSelection();
+	    var oldSelection = editor.getDomSelection();
 	    var afterNode = lastNode;
 	    var clones = nodes.map(function (node) {
 	      var clone = node.clone();
@@ -6781,7 +7871,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    else {
 	      editor.select(clones);
 	    }
-	    var newSelection = editor.getSelection();
+	    var newSelection = editor.getDomSelection();
 
 	    editor._onAction('duplicateNodes', {
 	      afterNode: lastNode,
@@ -6801,7 +7891,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	 * @private
 	 */
 	Node.prototype._onInsertBefore = function (field, value, type) {
-	  var oldSelection = this.editor.getSelection();
+	  var oldSelection = this.editor.getDomSelection();
 
 	  var newNode = new Node(this.editor, {
 	    field: (field != undefined) ? field : '',
@@ -6812,7 +7902,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  this.parent.insertBefore(newNode, this);
 	  this.editor.highlighter.unhighlight();
 	  newNode.focus('field');
-	  var newSelection = this.editor.getSelection();
+	  var newSelection = this.editor.getDomSelection();
 
 	  this.editor._onAction('insertBeforeNodes', {
 	    nodes: [newNode],
@@ -6831,7 +7921,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	 * @private
 	 */
 	Node.prototype._onInsertAfter = function (field, value, type) {
-	  var oldSelection = this.editor.getSelection();
+	  var oldSelection = this.editor.getDomSelection();
 
 	  var newNode = new Node(this.editor, {
 	    field: (field != undefined) ? field : '',
@@ -6842,7 +7932,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  this.parent.insertAfter(newNode, this);
 	  this.editor.highlighter.unhighlight();
 	  newNode.focus('field');
-	  var newSelection = this.editor.getSelection();
+	  var newSelection = this.editor.getDomSelection();
 
 	  this.editor._onAction('insertAfterNodes', {
 	    nodes: [newNode],
@@ -6861,7 +7951,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	 * @private
 	 */
 	Node.prototype._onAppend = function (field, value, type) {
-	  var oldSelection = this.editor.getSelection();
+	  var oldSelection = this.editor.getDomSelection();
 
 	  var newNode = new Node(this.editor, {
 	    field: (field != undefined) ? field : '',
@@ -6872,7 +7962,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  this.parent.appendChild(newNode);
 	  this.editor.highlighter.unhighlight();
 	  newNode.focus('field');
-	  var newSelection = this.editor.getSelection();
+	  var newSelection = this.editor.getDomSelection();
 
 	  this.editor._onAction('appendNodes', {
 	    nodes: [newNode],
@@ -6890,9 +7980,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	Node.prototype._onChangeType = function (newType) {
 	  var oldType = this.type;
 	  if (newType != oldType) {
-	    var oldSelection = this.editor.getSelection();
+	    var oldSelection = this.editor.getDomSelection();
 	    this.changeType(newType);
-	    var newSelection = this.editor.getSelection();
+	    var newSelection = this.editor.getDomSelection();
 
 	    this.editor._onAction('changeType', {
 	      node: this,
@@ -6907,51 +7997,175 @@ return /******/ (function(modules) { // webpackBootstrap
 	/**
 	 * Sort the child's of the node. Only applicable when the node has type 'object'
 	 * or 'array'.
+	 * @param {String[]} path      Path of the child value to be compared
 	 * @param {String} direction   Sorting direction. Available values: "asc", "desc"
 	 * @private
 	 */
-	Node.prototype.sort = function (direction) {
+	Node.prototype.sort = function (path, direction) {
 	  if (!this._hasChilds()) {
 	    return;
 	  }
 
-	  var order = (direction == 'desc') ? -1 : 1;
-	  var prop = (this.type == 'array') ? 'value': 'field';
-	  this.hideChilds();
+	  this.hideChilds(); // sorting is faster when the childs are not attached to the dom
 
+	  // copy the childs array (the old one will be kept for an undo action
 	  var oldChilds = this.childs;
-	  var oldSortOrder = this.sortOrder;
-
-	  // copy the array (the old one will be kept for an undo action
 	  this.childs = this.childs.concat();
 
-	  // sort the arrays
-	  this.childs.sort(function (a, b) {
-	    return order * naturalSort(a[prop], b[prop]);
-	  });
-	  this.sortOrder = (order == 1) ? 'asc' : 'desc';
+	  // sort the childs array
+	  var order = (direction === 'desc') ? -1 : 1;
+
+	  if (this.type === 'object') {
+	    this.childs.sort(function (a, b) {
+	      return order * naturalSort(a.field, b.field);
+	    });
+	  }
+	  else { // this.type === 'array'
+	    this.childs.sort(function (a, b) {
+	      var nodeA = a.getNestedChild(path);
+	      var nodeB = b.getNestedChild(path);
+
+	      if (!nodeA) {
+	        return order;
+	      }
+	      if (!nodeB) {
+	        return -order;
+	      }
+
+	      var valueA = nodeA.value;
+	      var valueB = nodeB.value;
+
+	      if (typeof valueA !== 'string' && typeof valueB !== 'string') {
+	        // both values are a number, boolean, or null -> use simple, fast sorting
+	        return valueA > valueB ? order : valueA < valueB ? -order : 0;
+	      }
+
+	      return order * naturalSort(valueA, valueB);
+	    });
+	  }
+
+	  // update the index numbering
+	  this._updateDomIndexes();
 
 	  this.editor._onAction('sort', {
 	    node: this,
 	    oldChilds: oldChilds,
-	    oldSort: oldSortOrder,
-	    newChilds: this.childs,
-	    newSort: this.sortOrder
+	    newChilds: this.childs
 	  });
 
 	  this.showChilds();
 	};
 
 	/**
-	 * Create a table row with an append button.
-	 * @return {HTMLElement | undefined} buttonAppend or undefined when inapplicable
+	 * Get a nested child given a path with properties
+	 * @param {String[]} path
+	 * @returns {Node}
 	 */
-	Node.prototype.getAppend = function () {
+	Node.prototype.getNestedChild = function (path) {
+	  var i = 0;
+	  var child = this;
+
+	  while (child && i < path.length) {
+	    child = child.findChildByProperty(path[i]);
+	    i++;
+	  }
+
+	  return child;
+	};
+
+	/**
+	 * Find a child by property name
+	 * @param {string} prop
+	 * @return {Node | undefined} Returns the child node when found, or undefined otherwise
+	 */
+	Node.prototype.findChildByProperty = function(prop) {
+	  if (this.type !== 'object') {
+	    return undefined;
+	  }
+
+	  return this.childs.find(function (child) {
+	    return child.field === prop;
+	  });
+	};
+
+	/**
+	 * Get the paths of the sortable child paths of this node
+	 * @return {string[]}
+	 */
+	Node.prototype.getSortablePaths = function () {
+	  if (this.type === 'array') {
+	    if (this.childs.length > 0) {
+	      // sort on any of the property paths of nested objects
+	      var pathsMap = {};
+	      this.childs.forEach(function (child) {
+	        child._getSortablePaths(pathsMap, '');
+	      });
+
+	      return Object.keys(pathsMap).sort();
+	    }
+	    else {
+	      // empty array, you can sort though it doesn't do anything
+	      return [ '.' ];
+	    }
+	  }
+
+	  if (this.type === 'object') {
+	    // sort the object by its properties
+	    return [ '.' ];
+	  }
+
+	  return [];
+	};
+
+	/**
+	 * Get the paths of the sortable child paths of this node
+	 * @param {Object<String, boolean>} pathsMap
+	 * @param {string} rootPath
+	 */
+	Node.prototype._getSortablePaths = function (pathsMap, rootPath) {
+	  if (this.type === 'array') {
+	    // not sortable
+	  }
+	  else if (this.type === 'object') {
+	    this.childs.forEach(function (child) {
+	      if (child.type === 'object') {
+	        child._getSortablePaths(pathsMap, rootPath + '.' + child.field);
+	      }
+	      else if (child.type === 'array') {
+	        // not sortable
+	      }
+	      else { // type === 'auto' or type === 'string'
+	        var path = rootPath + '.' + child.field;
+	        pathsMap[path] = true;
+	      }
+	    });
+	  }
+	  else {
+	    pathsMap[rootPath + '.'] = true;
+	  }
+	};
+
+	/**
+	 * Create a table row with an append button.
+	 * @return {HTMLElement | undefined} tr with the AppendNode contents
+	 */
+	Node.prototype.getAppendDom = function () {
 	  if (!this.append) {
 	    this.append = new AppendNode(this.editor);
 	    this.append.setParent(this);
 	  }
 	  return this.append.getDom();
+	};
+
+	/**
+	 * Create a table row with an showMore button and text
+	 * @return {HTMLElement | undefined} tr with the AppendNode contents
+	 */
+	Node.prototype.getShowMoreDom = function () {
+	  if (!this.showMore) {
+	    this.showMore = new ShowMoreNode(this.editor, this);
+	  }
+	  return this.showMore.getDom();
 	};
 
 	/**
@@ -7000,9 +8214,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	/**
 	 * Get the next sibling of current node
 	 * @return {Node} nextSibling
-	 * @private
 	 */
-	Node.prototype._nextSibling = function () {
+	Node.prototype.nextSibling = function () {
 	  var index = this.parent.childs.indexOf(this);
 	  return this.parent.childs[index + 1] || this.parent.append;
 	};
@@ -7010,7 +8223,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	/**
 	 * Get the previously rendered node
 	 * @return {Node | null} previousNode
-	 * @private
 	 */
 	Node.prototype._previousNode = function () {
 	  var prevNode = null;
@@ -7022,7 +8234,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	      prevDom = prevDom.previousSibling;
 	      prevNode = Node.getNodeFromTarget(prevDom);
 	    }
-	    while (prevDom && (prevNode instanceof AppendNode && !prevNode.isVisible()));
+	    while (prevDom && prevNode && (prevNode instanceof AppendNode && !prevNode.isVisible()));
 	  }
 	  return prevNode;
 	};
@@ -7042,7 +8254,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	      nextDom = nextDom.nextSibling;
 	      nextNode = Node.getNodeFromTarget(nextDom);
 	    }
-	    while (nextDom && (nextNode instanceof AppendNode && !nextNode.isVisible()));
+	    while (nextDom && nextNode && (nextNode instanceof AppendNode && !nextNode.isVisible()));
 	  }
 
 	  return nextNode;
@@ -7075,7 +8287,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  if (dom && dom.parentNode) {
 	    var lastDom = dom.parentNode.lastChild;
 	    lastNode =  Node.getNodeFromTarget(lastDom);
-	    while (lastDom && (lastNode instanceof AppendNode && !lastNode.isVisible())) {
+	    while (lastDom && lastNode && !lastNode.isVisible()) {
 	      lastDom = lastDom.previousSibling;
 	      lastNode =  Node.getNodeFromTarget(lastDom);
 	    }
@@ -7178,16 +8390,36 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	// titles with explanation for the different types
 	Node.TYPE_TITLES = {
-	  'auto': 'Field type "auto". ' +
-	      'The field type is automatically determined from the value ' +
-	      'and can be a string, number, boolean, or null.',
-	  'object': 'Field type "object". ' +
-	      'An object contains an unordered set of key/value pairs.',
-	  'array': 'Field type "array". ' +
-	      'An array contains an ordered collection of values.',
-	  'string': 'Field type "string". ' +
-	      'Field type is not determined from the value, ' +
-	      'but always returned as string.'
+	  'auto': translate('autoType'),
+	  'object': translate('objectType'),
+	  'array': translate('arrayType'),
+	  'string': translate('stringType')
+	};
+
+	Node.prototype.addTemplates = function (menu, append) {
+	    var node = this;
+	    var templates = node.editor.options.templates;
+	    if (templates == null) return;
+	    if (templates.length) {
+	        // create a separator
+	        menu.push({
+	            'type': 'separator'
+	        });
+	    }
+	    var appendData = function (name, data) {
+	        node._onAppend(name, data);
+	    };
+	    var insertData = function (name, data) {
+	        node._onInsertBefore(name, data);
+	    };
+	    templates.forEach(function (template) {
+	        menu.push({
+	            text: template.text,
+	            className: (template.className || 'jsoneditor-type-object'),
+	            title: template.title,
+	            click: (append ? appendData.bind(this, template.field, template.value) : insertData.bind(this, template.field, template.value))
+	        });
+	    });
 	};
 
 	/**
@@ -7204,12 +8436,12 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	  if (this.editable.value) {
 	    items.push({
-	      text: 'Type',
-	      title: 'Change the type of this field',
+	      text: translate('type'),
+	      title: translate('typeTitle'),
 	      className: 'jsoneditor-type-' + this.type,
 	      submenu: [
 	        {
-	          text: 'Auto',
+	          text: translate('auto'),
 	          className: 'jsoneditor-type-auto' +
 	              (this.type == 'auto' ? ' jsoneditor-selected' : ''),
 	          title: titles.auto,
@@ -7218,7 +8450,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	          }
 	        },
 	        {
-	          text: 'Array',
+	          text: translate('array'),
 	          className: 'jsoneditor-type-array' +
 	              (this.type == 'array' ? ' jsoneditor-selected' : ''),
 	          title: titles.array,
@@ -7227,7 +8459,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	          }
 	        },
 	        {
-	          text: 'Object',
+	          text: translate('object'),
 	          className: 'jsoneditor-type-object' +
 	              (this.type == 'object' ? ' jsoneditor-selected' : ''),
 	          title: titles.object,
@@ -7236,7 +8468,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	          }
 	        },
 	        {
-	          text: 'String',
+	          text: translate('string'),
 	          className: 'jsoneditor-type-string' +
 	              (this.type == 'string' ? ' jsoneditor-selected' : ''),
 	          title: titles.string,
@@ -7249,32 +8481,13 @@ return /******/ (function(modules) { // webpackBootstrap
 	  }
 
 	  if (this._hasChilds()) {
-	    var direction = ((this.sortOrder == 'asc') ? 'desc': 'asc');
 	    items.push({
-	      text: 'Sort',
-	      title: 'Sort the childs of this ' + this.type,
-	      className: 'jsoneditor-sort-' + direction,
+	      text: translate('sort'),
+	      title: translate('sortTitle') + this.type,
+	      className: 'jsoneditor-sort-asc',
 	      click: function () {
-	        node.sort(direction);
-	      },
-	      submenu: [
-	        {
-	          text: 'Ascending',
-	          className: 'jsoneditor-sort-asc',
-	          title: 'Sort the childs of this ' + this.type + ' in ascending order',
-	          click: function () {
-	            node.sort('asc');
-	          }
-	        },
-	        {
-	          text: 'Descending',
-	          className: 'jsoneditor-sort-desc',
-	          title: 'Sort the childs of this ' + this.type +' in descending order',
-	          click: function () {
-	            node.sort('desc');
-	          }
-	        }
-	      ]
+	        node._showSortModal()
+	      }
 	    });
 	  }
 
@@ -7289,101 +8502,107 @@ return /******/ (function(modules) { // webpackBootstrap
 	    // create append button (for last child node only)
 	    var childs = node.parent.childs;
 	    if (node == childs[childs.length - 1]) {
-	      items.push({
-	        text: 'Append',
-	        title: 'Append a new field with type \'auto\' after this field (Ctrl+Shift+Ins)',
-	        submenuTitle: 'Select the type of the field to be appended',
-	        className: 'jsoneditor-append',
-	        click: function () {
-	          node._onAppend('', '', 'auto');
-	        },
-	        submenu: [
-	          {
-	            text: 'Auto',
+	        var appendSubmenu = [
+	            {
+	                text: translate('auto'),
+	                className: 'jsoneditor-type-auto',
+	                title: titles.auto,
+	                click: function () {
+	                    node._onAppend('', '', 'auto');
+	                }
+	            },
+	            {
+	                text: translate('array'),
+	                className: 'jsoneditor-type-array',
+	                title: titles.array,
+	                click: function () {
+	                    node._onAppend('', []);
+	                }
+	            },
+	            {
+	                text: translate('object'),
+	                className: 'jsoneditor-type-object',
+	                title: titles.object,
+	                click: function () {
+	                    node._onAppend('', {});
+	                }
+	            },
+	            {
+	                text: translate('string'),
+	                className: 'jsoneditor-type-string',
+	                title: titles.string,
+	                click: function () {
+	                    node._onAppend('', '', 'string');
+	                }
+	            }
+	        ];
+	        node.addTemplates(appendSubmenu, true);
+	        items.push({
+	            text: translate('appendText'),
+	            title: translate('appendTitle'),
+	            submenuTitle: translate('appendSubmenuTitle'),
+	            className: 'jsoneditor-append',
+	            click: function () {
+	                node._onAppend('', '', 'auto');
+	            },
+	            submenu: appendSubmenu
+	        });
+	    }
+
+
+
+	    // create insert button
+	    var insertSubmenu = [
+	        {
+	            text: translate('auto'),
 	            className: 'jsoneditor-type-auto',
 	            title: titles.auto,
 	            click: function () {
-	              node._onAppend('', '', 'auto');
+	                node._onInsertBefore('', '', 'auto');
 	            }
-	          },
-	          {
-	            text: 'Array',
+	        },
+	        {
+	            text: translate('array'),
 	            className: 'jsoneditor-type-array',
 	            title: titles.array,
 	            click: function () {
-	              node._onAppend('', []);
+	                node._onInsertBefore('', []);
 	            }
-	          },
-	          {
-	            text: 'Object',
+	        },
+	        {
+	            text: translate('object'),
 	            className: 'jsoneditor-type-object',
 	            title: titles.object,
 	            click: function () {
-	              node._onAppend('', {});
+	                node._onInsertBefore('', {});
 	            }
-	          },
-	          {
-	            text: 'String',
+	        },
+	        {
+	            text: translate('string'),
 	            className: 'jsoneditor-type-string',
 	            title: titles.string,
 	            click: function () {
-	              node._onAppend('', '', 'string');
+	                node._onInsertBefore('', '', 'string');
 	            }
-	          }
-	        ]
-	      });
-	    }
-
-	    // create insert button
+	        }
+	    ];
+	    node.addTemplates(insertSubmenu, false);
 	    items.push({
-	      text: 'Insert',
-	      title: 'Insert a new field with type \'auto\' before this field (Ctrl+Ins)',
-	      submenuTitle: 'Select the type of the field to be inserted',
+	      text: translate('insert'),
+	      title: translate('insertTitle'),
+	      submenuTitle: translate('insertSub'),
 	      className: 'jsoneditor-insert',
 	      click: function () {
 	        node._onInsertBefore('', '', 'auto');
 	      },
-	      submenu: [
-	        {
-	          text: 'Auto',
-	          className: 'jsoneditor-type-auto',
-	          title: titles.auto,
-	          click: function () {
-	            node._onInsertBefore('', '', 'auto');
-	          }
-	        },
-	        {
-	          text: 'Array',
-	          className: 'jsoneditor-type-array',
-	          title: titles.array,
-	          click: function () {
-	            node._onInsertBefore('', []);
-	          }
-	        },
-	        {
-	          text: 'Object',
-	          className: 'jsoneditor-type-object',
-	          title: titles.object,
-	          click: function () {
-	            node._onInsertBefore('', {});
-	          }
-	        },
-	        {
-	          text: 'String',
-	          className: 'jsoneditor-type-string',
-	          title: titles.string,
-	          click: function () {
-	            node._onInsertBefore('', '', 'string');
-	          }
-	        }
-	      ]
+	      submenu: insertSubmenu
 	    });
 
 	    if (this.editable.field) {
 	      // create duplicate button
 	      items.push({
-	        text: 'Duplicate',
-	        title: 'Duplicate this field (Ctrl+D)',
+	        text: translate('duplicateText'),
+	        title: translate('duplicateField'),
 	        className: 'jsoneditor-duplicate',
 	        click: function () {
 	          Node.onDuplicate(node);
@@ -7392,8 +8611,8 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	      // create remove button
 	      items.push({
-	        text: 'Remove',
-	        title: 'Remove this field (Ctrl+Del)',
+	        text: translate('removeText'),
+	        title: translate('removeField'),
 	        className: 'jsoneditor-remove',
 	        click: function () {
 	          Node.onRemove(node);
@@ -7404,6 +8623,114 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	  var menu = new ContextMenu(items, {close: onClose});
 	  menu.show(anchor, this.editor.content);
+	};
+
+	/**
+	 * Show advanced sorting modal
+	 * @private
+	 */
+	Node.prototype._showSortModal = function () {
+	  var node = this;
+
+	  var content = '<div class="pico-modal-contents">' +
+	      '<div class="pico-modal-header">' + translate('sort') + '</div>' +
+	      '<form>' +
+	      '<table>' +
+	      '<tbody>' +
+	      '<tr>' +
+	      '  <td>' + translate('sortFieldLabel') + ' </td>' +
+	      '  <td class="jsoneditor-modal-input">' +
+	      '  <div class="jsoneditor-select-wrapper">' +
+	      '    <select id="field" title="' + translate('sortFieldTitle') + '">' +
+	      '    </select>' +
+	      '  </div>' +
+	      '  </td>' +
+	      '</tr>' +
+	      '<tr>' +
+	      '  <td>' + translate('sortDirectionLabel') + ' </td>' +
+	      '  <td class="jsoneditor-modal-input">' +
+	      '  <div id="direction" class="jsoneditor-button-group">' +
+	      '<input type="button" ' +
+	      'value="' + translate('sortAscending') + '" ' +
+	      'title="'  + translate('sortAscendingTitle') + '" ' +
+	      'data-value="asc" ' +
+	      'class="jsoneditor-button-first jsoneditor-button-asc"/>' +
+	      '<input type="button" ' +
+	      'value="' + translate('sortDescending') + '" ' +
+	      'title="' + translate('sortDescendingTitle') + '" ' +
+	      'data-value="desc" ' +
+	      'class="jsoneditor-button-last jsoneditor-button-desc"/>' +
+	      '  </div>' +
+	      '  </td>' +
+	      '</tr>' +
+	      '<tr>' +
+	      '<td colspan="2" class="jsoneditor-modal-input jsoneditor-modal-actions">' +
+	      '  <input type="submit" id="ok" value="' + translate('ok') + '" />' +
+	      '</td>' +
+	      '</tr>' +
+	      '</tbody>' +
+	      '</table>' +
+	      '</form>' +
+	      '</div>';
+
+	  picoModal({
+	    parent: this.editor.frame,
+	    content: content,
+	    overlayClass: 'jsoneditor-modal-overlay',
+	    modalClass: 'jsoneditor-modal'
+	  })
+	      .afterCreate(function (modal) {
+	        var form = modal.modalElem().querySelector('form');
+	        var ok = modal.modalElem().querySelector('#ok');
+	        var field = modal.modalElem().querySelector('#field');
+	        var direction = modal.modalElem().querySelector('#direction');
+
+	        var paths = node.getSortablePaths().sort();
+
+	        paths.forEach(function (path) {
+	          var option = document.createElement('option');
+	          option.text = path;
+	          option.value = path;
+	          field.appendChild(option);
+	        });
+
+	        function setDirection(value) {
+	          direction.value = value;
+	          direction.className = 'jsoneditor-button-group jsoneditor-button-group-value-' + direction.value;
+	        }
+
+	        field.value = node.sortedBy ? node.sortedBy.path : paths[0];
+	        setDirection(node.sortedBy ? node.sortedBy.direction : 'asc');
+
+	        direction.onclick = function (event) {
+	          setDirection(event.target.getAttribute('data-value'));
+	        };
+
+	        ok.onclick = function (event) {
+	          event.preventDefault();
+	          event.stopPropagation();
+
+	          modal.close();
+
+	          var path = field.value;
+	          var pathArray = (path === '.') ? [] : path.split('.').slice(1);
+
+	          node.sortedBy = {
+	            path: path,
+	            direction: direction.value
+	          };
+
+	          node.sort(pathArray, direction.value)
+	        };
+
+	        if (form) { // form is not available when JSONEditor is created inside a form
+	          form.onsubmit = ok.onclick;
+	        }
+	      })
+	      .afterClose(function (modal) {
+	        modal.destroy();
+	      })
+	      .show();
 	};
 
 	/**
@@ -7544,13 +8871,15 @@ return /******/ (function(modules) { // webpackBootstrap
 	};
 
 	// TODO: find a nicer solution to resolve this circular dependency between Node and AppendNode
+	//       idea: introduce properties .isAppendNode and .isNode and use that instead of instanceof AppendNode checks
 	var AppendNode = appendNodeFactory(Node);
+	var ShowMoreNode = showMoreNodeFactory(Node);
 
 	module.exports = Node;
 
 
 /***/ },
-/* 9 */
+/* 11 */
 /***/ function(module, exports) {
 
 	/*
@@ -7601,13 +8930,623 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 10 */
+/* 12 */
+/***/ function(module, exports, __webpack_require__) {
+
+	var __WEBPACK_AMD_DEFINE_FACTORY__, __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;/**
+	 * Permission is hereby granted, free of charge, to any person obtaining a copy
+	 * of this software and associated documentation files (the "Software"), to deal
+	 * in the Software without restriction, including without limitation the rights
+	 * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+	 * copies of the Software, and to permit persons to whom the Software is
+	 * furnished to do so, subject to the following conditions:
+	 *
+	 * The above copyright notice and this permission notice shall be included in
+	 * all copies or substantial portions of the Software.
+	 *
+	 * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+	 * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+	 * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+	 * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+	 * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+	 * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+	 * SOFTWARE.
+	 */
+
+	(function (root, factory) {
+	    "use strict";
+
+	    if (true) {
+	        !(__WEBPACK_AMD_DEFINE_ARRAY__ = [], __WEBPACK_AMD_DEFINE_FACTORY__ = (factory), __WEBPACK_AMD_DEFINE_RESULT__ = (typeof __WEBPACK_AMD_DEFINE_FACTORY__ === 'function' ? (__WEBPACK_AMD_DEFINE_FACTORY__.apply(exports, __WEBPACK_AMD_DEFINE_ARRAY__)) : __WEBPACK_AMD_DEFINE_FACTORY__), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
+	    }
+	    else if (typeof module === 'object' && module.exports) {
+	        module.exports = factory();
+	    }
+	    else {
+	        root.picoModal = factory();
+	    }
+	}(this, function () {
+
+	    /**
+	     * A self-contained modal library
+	     */
+	    "use strict";
+
+	    /** Returns whether a value is a dom node */
+	    function isNode(value) {
+	        if ( typeof Node === "object" ) {
+	            return value instanceof Node;
+	        }
+	        else {
+	            return value && typeof value === "object" && typeof value.nodeType === "number";
+	        }
+	    }
+
+	    /** Returns whether a value is a string */
+	    function isString(value) {
+	        return typeof value === "string";
+	    }
+
+	    /**
+	     * Generates observable objects that can be watched and triggered
+	     */
+	    function observable() {
+	        var callbacks = [];
+	        return {
+	            watch: callbacks.push.bind(callbacks),
+	            trigger: function(context, detail) {
+
+	                var unprevented = true;
+	                var event = {
+	                    detail: detail,
+	                    preventDefault: function preventDefault () {
+	                        unprevented = false;
+	                    }
+	                };
+
+	                for (var i = 0; i < callbacks.length; i++) {
+	                    callbacks[i](context, event);
+	                }
+
+	                return unprevented;
+	            }
+	        };
+	    }
+
+
+	    /** Whether an element is hidden */
+	    function isHidden ( elem ) {
+	        // @see http://stackoverflow.com/questions/19669786
+	        return window.getComputedStyle(elem).display === 'none';
+	    }
+
+
+	    /**
+	     * A small interface for creating and managing a dom element
+	     */
+	    function Elem( elem ) {
+	        this.elem = elem;
+	    }
+
+	    /** Creates a new div */
+	    Elem.make = function ( parent, tag ) {
+	        if ( typeof parent === "string" ) {
+	            parent = document.querySelector(parent);
+	        }
+	        var elem = document.createElement(tag || 'div');
+	        (parent || document.body).appendChild(elem);
+	        return new Elem(elem);
+	    };
+
+	    Elem.prototype = {
+
+	        /** Creates a child of this node */
+	        child: function (tag) {
+	            return Elem.make(this.elem, tag);
+	        },
+
+	        /** Applies a set of styles to an element */
+	        stylize: function(styles) {
+	            styles = styles || {};
+
+	            if ( typeof styles.opacity !== "undefined" ) {
+	                styles.filter = "alpha(opacity=" + (styles.opacity * 100) + ")";
+	            }
+
+	            for (var prop in styles) {
+	                if (styles.hasOwnProperty(prop)) {
+	                    this.elem.style[prop] = styles[prop];
+	                }
+	            }
+
+	            return this;
+	        },
+
+	        /** Adds a class name */
+	        clazz: function (clazz) {
+	            this.elem.className += " " + clazz;
+	            return this;
+	        },
+
+	        /** Sets the HTML */
+	        html: function (content) {
+	            if ( isNode(content) ) {
+	                this.elem.appendChild( content );
+	            }
+	            else {
+	                this.elem.innerHTML = content;
+	            }
+	            return this;
+	        },
+
+	        /** Adds a click handler to this element */
+	        onClick: function(callback) {
+	            this.elem.addEventListener('click', callback);
+	            return this;
+	        },
+
+	        /** Removes this element from the DOM */
+	        destroy: function() {
+	            this.elem.parentNode.removeChild(this.elem);
+	        },
+
+	        /** Hides this element */
+	        hide: function() {
+	            this.elem.style.display = "none";
+	        },
+
+	        /** Shows this element */
+	        show: function() {
+	            this.elem.style.display = "block";
+	        },
+
+	        /** Sets an attribute on this element */
+	        attr: function ( name, value ) {
+	            if (value !== undefined) {
+	                this.elem.setAttribute(name, value);
+	            }
+	            return this;
+	        },
+
+	        /** Executes a callback on all the ancestors of an element */
+	        anyAncestor: function ( predicate ) {
+	            var elem = this.elem;
+	            while ( elem ) {
+	                if ( predicate( new Elem(elem) ) ) {
+	                    return true;
+	                }
+	                else {
+	                    elem = elem.parentNode;
+	                }
+	            }
+	            return false;
+	        },
+
+	        /** Whether this element is visible */
+	        isVisible: function () {
+	            return !isHidden(this.elem);
+	        }
+	    };
+
+
+	    /** Generates the grey-out effect */
+	    function buildOverlay( getOption, close ) {
+	        return Elem.make( getOption("parent") )
+	            .clazz("pico-overlay")
+	            .clazz( getOption("overlayClass", "") )
+	            .stylize({
+	                display: "none",
+	                position: "fixed",
+	                top: "0px",
+	                left: "0px",
+	                height: "100%",
+	                width: "100%",
+	                zIndex: 10000
+	            })
+	            .stylize(getOption('overlayStyles', {
+	                opacity: 0.5,
+	                background: "#000"
+	            }))
+	            .onClick(function () {
+	                if ( getOption('overlayClose', true) ) {
+	                    close();
+	                }
+	            });
+	    }
+
+	    // An auto incrementing ID assigned to each modal
+	    var autoinc = 1;
+
+	    /** Builds the content of a modal */
+	    function buildModal( getOption, close ) {
+	        var width = getOption('width', 'auto');
+	        if ( typeof width === "number" ) {
+	            width = "" + width + "px";
+	        }
+
+	        var id = getOption("modalId", "pico-" + autoinc++);
+
+	        var elem = Elem.make( getOption("parent") )
+	            .clazz("pico-content")
+	            .clazz( getOption("modalClass", "") )
+	            .stylize({
+	                display: 'none',
+	                position: 'fixed',
+	                zIndex: 10001,
+	                left: "50%",
+	                top: "38.1966%",
+	                maxHeight: '90%',
+	                boxSizing: 'border-box',
+	                width: width,
+	                '-ms-transform': 'translate(-50%,-38.1966%)',
+	                '-moz-transform': 'translate(-50%,-38.1966%)',
+	                '-webkit-transform': 'translate(-50%,-38.1966%)',
+	                '-o-transform': 'translate(-50%,-38.1966%)',
+	                transform: 'translate(-50%,-38.1966%)'
+	            })
+	            .stylize(getOption('modalStyles', {
+	                overflow: 'auto',
+	                backgroundColor: "white",
+	                padding: "20px",
+	                borderRadius: "5px"
+	            }))
+	            .html( getOption('content') )
+	            .attr("id", id)
+	            .attr("role", "dialog")
+	            .attr("aria-labelledby", getOption("ariaLabelledBy"))
+	            .attr("aria-describedby", getOption("ariaDescribedBy", id))
+	            .onClick(function (event) {
+	                var isCloseClick = new Elem(event.target).anyAncestor(function (elem) {
+	                    return /\bpico-close\b/.test(elem.elem.className);
+	                });
+	                if ( isCloseClick ) {
+	                    close();
+	                }
+	            });
+
+	        return elem;
+	    }
+
+	    /** Builds the close button */
+	    function buildClose ( elem, getOption ) {
+	        if ( getOption('closeButton', true) ) {
+	            return elem.child('button')
+	                .html( getOption('closeHtml', "&#xD7;") )
+	                .clazz("pico-close")
+	                .clazz( getOption("closeClass", "") )
+	                .stylize( getOption('closeStyles', {
+	                    borderRadius: "2px",
+	                    border: 0,
+	                    padding: 0,
+	                    cursor: "pointer",
+	                    height: "15px",
+	                    width: "15px",
+	                    position: "absolute",
+	                    top: "5px",
+	                    right: "5px",
+	                    fontSize: "16px",
+	                    textAlign: "center",
+	                    lineHeight: "15px",
+	                    background: "#CCC"
+	                }) )
+	                .attr("aria-label", getOption("close-label", "Close"));
+	        }
+	    }
+
+	    /** Builds a method that calls a method and returns an element */
+	    function buildElemAccessor( builder ) {
+	        return function () {
+	            return builder().elem;
+	        };
+	    }
+
+
+	    // An observable that is triggered whenever the escape key is pressed
+	    var escapeKey = observable();
+
+	    // An observable that is triggered when the user hits the tab key
+	    var tabKey = observable();
+
+	    /** A global event handler to detect the escape key being pressed */
+	    document.documentElement.addEventListener('keydown', function onKeyPress (event) {
+	        var keycode = event.which || event.keyCode;
+
+	        // If this is the escape key
+	        if ( keycode === 27 ) {
+	            escapeKey.trigger();
+	        }
+
+	        // If this is the tab key
+	        else if ( keycode === 9 ) {
+	            tabKey.trigger(event);
+	        }
+	    });
+
+
+	    /** Attaches focus management events */
+	    function manageFocus ( iface, isEnabled ) {
+
+	        /** Whether an element matches a selector */
+	        function matches ( elem, selector ) {
+	            var fn = elem.msMatchesSelector || elem.webkitMatchesSelector || elem.matches;
+	            return fn.call(elem, selector);
+	        }
+
+	        /**
+	         * Returns whether an element is focusable
+	         * @see http://stackoverflow.com/questions/18261595
+	         */
+	        function canFocus( elem ) {
+	            if (
+	                isHidden(elem) ||
+	                matches(elem, ":disabled") ||
+	                elem.hasAttribute("contenteditable")
+	            ) {
+	                return false;
+	            }
+	            else {
+	                return elem.hasAttribute("tabindex") ||
+	                    matches(elem, "input,select,textarea,button,a[href],area[href],iframe");
+	            }
+	        }
+
+	        /** Returns the first descendant that can be focused */
+	        function firstFocusable ( elem ) {
+	            var items = elem.getElementsByTagName("*");
+	            for (var i = 0; i < items.length; i++) {
+	                if ( canFocus(items[i]) ) {
+	                    return items[i];
+	                }
+	            }
+	        }
+
+	        /** Returns the last descendant that can be focused */
+	        function lastFocusable ( elem ) {
+	            var items = elem.getElementsByTagName("*");
+	            for (var i = items.length; i--;) {
+	                if ( canFocus(items[i]) ) {
+	                    return items[i];
+	                }
+	            }
+	        }
+
+	        // The element focused before the modal opens
+	        var focused;
+
+	        // Records the currently focused element so state can be returned
+	        // after the modal closes
+	        iface.beforeShow(function getActiveFocus() {
+	            focused = document.activeElement;
+	        });
+
+	        // Shift focus into the modal
+	        iface.afterShow(function focusModal() {
+	            if ( isEnabled() ) {
+	                var focusable = firstFocusable(iface.modalElem());
+	                if ( focusable ) {
+	                    focusable.focus();
+	                }
+	            }
+	        });
+
+	        // Restore the previously focused element when the modal closes
+	        iface.afterClose(function returnFocus() {
+	            if ( isEnabled() && focused ) {
+	                focused.focus();
+	            }
+	            focused = null;
+	        });
+
+	        // Capture tab key presses and loop them within the modal
+	        tabKey.watch(function tabKeyPress (event) {
+	            if ( isEnabled() && iface.isVisible() ) {
+	                var first = firstFocusable(iface.modalElem());
+	                var last = lastFocusable(iface.modalElem());
+
+	                var from = event.shiftKey ? first : last;
+	                if ( from === document.activeElement ) {
+	                    (event.shiftKey ? last : first).focus();
+	                    event.preventDefault();
+	                }
+	            }
+	        });
+	    }
+
+	    /** Manages setting the 'overflow: hidden' on the body tag */
+	    function manageBodyOverflow(iface, isEnabled) {
+	        var origOverflow;
+	        var body = new Elem(document.body);
+
+	        iface.beforeShow(function () {
+	            // Capture the current values so they can be restored
+	            origOverflow = body.elem.style.overflow;
+
+	            if (isEnabled()) {
+	                body.stylize({ overflow: "hidden" });
+	            }
+	        });
+
+	        iface.afterClose(function () {
+	            body.stylize({ overflow: origOverflow });
+	        });
+	    }
+
+	    /**
+	     * Displays a modal
+	     */
+	    return function picoModal(options) {
+
+	        if ( isString(options) || isNode(options) ) {
+	            options = { content: options };
+	        }
+
+	        var afterCreateEvent = observable();
+	        var beforeShowEvent = observable();
+	        var afterShowEvent = observable();
+	        var beforeCloseEvent = observable();
+	        var afterCloseEvent = observable();
+
+	        /**
+	         * Returns a named option if it has been explicitly defined. Otherwise,
+	         * it returns the given default value
+	         */
+	        function getOption ( opt, defaultValue ) {
+	            var value = options[opt];
+	            if ( typeof value === "function" ) {
+	                value = value( defaultValue );
+	            }
+	            return value === undefined ? defaultValue : value;
+	        }
+
+
+	        // The various DOM elements that constitute the modal
+	        var modalElem = build.bind(window, 'modal');
+	        var shadowElem = build.bind(window, 'overlay');
+	        var closeElem = build.bind(window, 'close');
+
+	        // This will eventually contain the modal API returned to the user
+	        var iface;
+
+
+	        /** Hides this modal */
+	        function forceClose (detail) {
+	            shadowElem().hide();
+	            modalElem().hide();
+	            afterCloseEvent.trigger(iface, detail);
+	        }
+
+	        /** Gracefully hides this modal */
+	        function close (detail) {
+	            if ( beforeCloseEvent.trigger(iface, detail) ) {
+	                forceClose(detail);
+	            }
+	        }
+
+	        /** Wraps a method so it returns the modal interface */
+	        function returnIface ( callback ) {
+	            return function () {
+	                callback.apply(this, arguments);
+	                return iface;
+	            };
+	        }
+
+
+	        // The constructed dom nodes
+	        var built;
+
+	        /** Builds a method that calls a method and returns an element */
+	        function build (name, detail) {
+	            if ( !built ) {
+	                var modal = buildModal(getOption, close);
+	                built = {
+	                    modal: modal,
+	                    overlay: buildOverlay(getOption, close),
+	                    close: buildClose(modal, getOption)
+	                };
+	                afterCreateEvent.trigger(iface, detail);
+	            }
+	            return built[name];
+	        }
+
+	        iface = {
+
+	            /** Returns the wrapping modal element */
+	            modalElem: buildElemAccessor(modalElem),
+
+	            /** Returns the close button element */
+	            closeElem: buildElemAccessor(closeElem),
+
+	            /** Returns the overlay element */
+	            overlayElem: buildElemAccessor(shadowElem),
+
+	            /** Builds the dom without showing the modal */
+	            buildDom: returnIface(build.bind(null, null)),
+
+	            /** Returns whether this modal is currently being shown */
+	            isVisible: function () {
+	                return !!(built && modalElem && modalElem().isVisible());
+	            },
+
+	            /** Shows this modal */
+	            show: function (detail) {
+	                if ( beforeShowEvent.trigger(iface, detail) ) {
+	                    shadowElem().show();
+	                    closeElem();
+	                    modalElem().show();
+	                    afterShowEvent.trigger(iface, detail);
+	                }
+	                return this;
+	            },
+
+	            /** Hides this modal */
+	            close: returnIface(close),
+
+	            /**
+	             * Force closes this modal. This will not call beforeClose
+	             * events and will just immediately hide the modal
+	             */
+	            forceClose: returnIface(forceClose),
+
+	            /** Destroys this modal */
+	            destroy: function () {
+	                modalElem().destroy();
+	                shadowElem().destroy();
+	                shadowElem = modalElem = closeElem = undefined;
+	            },
+
+	            /**
+	             * Updates the options for this modal. This will only let you
+	             * change options that are re-evaluted regularly, such as
+	             * `overlayClose`.
+	             */
+	            options: function ( opts ) {
+	                Object.keys(opts).map(function (key) {
+	                    options[key] = opts[key];
+	                });
+	            },
+
+	            /** Executes after the DOM nodes are created */
+	            afterCreate: returnIface(afterCreateEvent.watch),
+
+	            /** Executes a callback before this modal is closed */
+	            beforeShow: returnIface(beforeShowEvent.watch),
+
+	            /** Executes a callback after this modal is shown */
+	            afterShow: returnIface(afterShowEvent.watch),
+
+	            /** Executes a callback before this modal is closed */
+	            beforeClose: returnIface(beforeCloseEvent.watch),
+
+	            /** Executes a callback after this modal is closed */
+	            afterClose: returnIface(afterCloseEvent.watch)
+	        };
+
+	        manageFocus(iface, getOption.bind(null, "focus", true));
+
+	        manageBodyOverflow(iface, getOption.bind(null, "bodyOverflow", true));
+
+	        // If a user presses the 'escape' key, close the modal.
+	        escapeKey.watch(function escapeKeyPress () {
+	            if ( getOption("escCloses", true) && iface.isVisible() ) {
+	                iface.close();
+	            }
+	        });
+
+	        return iface;
+	    };
+
+	}));
+
+
+/***/ },
+/* 13 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
 	var util = __webpack_require__(4);
 	var ContextMenu = __webpack_require__(7);
+	var translate = __webpack_require__(8).translate;
 
 	/**
 	 * A factory function to create an AppendNode, which depends on a Node
@@ -7645,6 +9584,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    // a row for the append button
 	    var trAppend = document.createElement('tr');
+	    trAppend.className = 'jsoneditor-append';
 	    trAppend.node = this;
 	    dom.tr = trAppend;
 
@@ -7658,6 +9598,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	      var tdMenu = document.createElement('td');
 	      dom.tdMenu = tdMenu;
 	      var menu = document.createElement('button');
+	      menu.type = 'button';
 	      menu.className = 'jsoneditor-contextmenu';
 	      menu.title = 'Click to open the actions menu (Ctrl+M)';
 	      dom.menu = menu;
@@ -7667,7 +9608,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    // a cell for the contents (showing text 'empty')
 	    var tdAppend = document.createElement('td');
 	    var domText = document.createElement('div');
-	    domText.innerHTML = '(empty)';
+	    domText.innerHTML = '(' + translate('empty') + ')';
 	    domText.className = 'jsoneditor-readonly';
 	    tdAppend.appendChild(domText);
 	    dom.td = tdAppend;
@@ -7681,7 +9622,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  /**
 	   * Update the HTML dom of the Node
 	   */
-	  AppendNode.prototype.updateDom = function () {
+	  AppendNode.prototype.updateDom = function(options) {
 	    var dom = this.dom;
 	    var tdAppend = dom.td;
 	    if (tdAppend) {
@@ -7691,7 +9632,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    var domText = dom.text;
 	    if (domText) {
-	      domText.innerHTML = '(empty ' + this.parent.type + ')';
+	      domText.innerHTML = '(' + translate('empty') + ' ' + this.parent.type + ')';
 	    }
 
 	    // attach or detach the contents of the append node:
@@ -7739,50 +9680,52 @@ return /******/ (function(modules) { // webpackBootstrap
 	  AppendNode.prototype.showContextMenu = function (anchor, onClose) {
 	    var node = this;
 	    var titles = Node.TYPE_TITLES;
+	    var appendSubmenu = [
+	        {
+	            text: translate('auto'),
+	            className: 'jsoneditor-type-auto',
+	            title: titles.auto,
+	            click: function () {
+	                node._onAppend('', '', 'auto');
+	            }
+	        },
+	        {
+	            text: translate('array'),
+	            className: 'jsoneditor-type-array',
+	            title: titles.array,
+	            click: function () {
+	                node._onAppend('', []);
+	            }
+	        },
+	        {
+	            text: translate('object'),
+	            className: 'jsoneditor-type-object',
+	            title: titles.object,
+	            click: function () {
+	                node._onAppend('', {});
+	            }
+	        },
+	        {
+	            text: translate('string'),
+	            className: 'jsoneditor-type-string',
+	            title: titles.string,
+	            click: function () {
+	                node._onAppend('', '', 'string');
+	            }
+	        }
+	    ];
+	    node.addTemplates(appendSubmenu, true);
 	    var items = [
 	      // create append button
 	      {
-	        'text': 'Append',
-	        'title': 'Append a new field with type \'auto\' (Ctrl+Shift+Ins)',
-	        'submenuTitle': 'Select the type of the field to be appended',
+	        'text': translate('appendText'),
+	        'title': translate('appendTitleAuto'),
+	        'submenuTitle': translate('appendSubmenuTitle'),
 	        'className': 'jsoneditor-insert',
 	        'click': function () {
 	          node._onAppend('', '', 'auto');
 	        },
-	        'submenu': [
-	          {
-	            'text': 'Auto',
-	            'className': 'jsoneditor-type-auto',
-	            'title': titles.auto,
-	            'click': function () {
-	              node._onAppend('', '', 'auto');
-	            }
-	          },
-	          {
-	            'text': 'Array',
-	            'className': 'jsoneditor-type-array',
-	            'title': titles.array,
-	            'click': function () {
-	              node._onAppend('', []);
-	            }
-	          },
-	          {
-	            'text': 'Object',
-	            'className': 'jsoneditor-type-object',
-	            'title': titles.object,
-	            'click': function () {
-	              node._onAppend('', {});
-	            }
-	          },
-	          {
-	            'text': 'String',
-	            'className': 'jsoneditor-type-string',
-	            'title': titles.string,
-	            'click': function () {
-	              node._onAppend('', '', 'string');
-	            }
-	          }
-	        ]
+	        'submenu': appendSubmenu
 	      }
 	    ];
 
@@ -7791,7 +9734,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  };
 
 	  /**
-	   * Handle an event. The event is catched centrally by the editor
+	   * Handle an event. The event is caught centrally by the editor
 	   * @param {Event} event
 	   */
 	  AppendNode.prototype.onEvent = function (event) {
@@ -7835,7 +9778,168 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 11 */
+/* 14 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+
+	var translate = __webpack_require__(8).translate;
+
+	/**
+	 * A factory function to create an ShowMoreNode, which depends on a Node
+	 * @param {function} Node
+	 */
+	function showMoreNodeFactory(Node) {
+	  /**
+	   * @constructor ShowMoreNode
+	   * @extends Node
+	   * @param {TreeEditor} editor
+	   * @param {Node} parent
+	   * Create a new ShowMoreNode. This is a special node which is created
+	   * for arrays or objects having more than 100 items
+	   */
+	  function ShowMoreNode (editor, parent) {
+	    /** @type {TreeEditor} */
+	    this.editor = editor;
+	    this.parent = parent;
+	    this.dom = {};
+	  }
+
+	  ShowMoreNode.prototype = new Node();
+
+	  /**
+	   * Return a table row with an append button.
+	   * @return {Element} dom   TR element
+	   */
+	  ShowMoreNode.prototype.getDom = function () {
+	    if (this.dom.tr) {
+	      return this.dom.tr;
+	    }
+
+	    this._updateEditability();
+
+	    // display "show more"
+	    if (!this.dom.tr) {
+	      var me = this;
+	      var parent = this.parent;
+	      var showMoreButton = document.createElement('a');
+	      showMoreButton.appendChild(document.createTextNode(translate('showMore')));
+	      showMoreButton.href = '#';
+	      showMoreButton.onclick = function (event) {
+	        // TODO: use callback instead of accessing a method of the parent
+	        parent.visibleChilds = Math.floor(parent.visibleChilds / parent.MAX_VISIBLE_CHILDS + 1) *
+	            parent.MAX_VISIBLE_CHILDS;
+	        me.updateDom();
+	        parent.showChilds();
+
+	        event.preventDefault();
+	        return false;
+	      };
+
+	      var showAllButton = document.createElement('a');
+	      showAllButton.appendChild(document.createTextNode(translate('showAll')));
+	      showAllButton.href = '#';
+	      showAllButton.onclick = function (event) {
+	        // TODO: use callback instead of accessing a method of the parent
+	        parent.visibleChilds = Infinity;
+	        me.updateDom();
+	        parent.showChilds();
+
+	        event.preventDefault();
+	        return false;
+	      };
+
+	      var moreContents = document.createElement('div');
+	      var moreText = document.createTextNode(this._getShowMoreText());
+	      moreContents.className = 'jsoneditor-show-more';
+	      moreContents.appendChild(moreText);
+	      moreContents.appendChild(showMoreButton);
+	      moreContents.appendChild(document.createTextNode('. '));
+	      moreContents.appendChild(showAllButton);
+	      moreContents.appendChild(document.createTextNode('. '));
+
+	      var tdContents = document.createElement('td');
+	      tdContents.appendChild(moreContents);
+
+	      var moreTr = document.createElement('tr');
+	      moreTr.appendChild(document.createElement('td'));
+	      moreTr.appendChild(document.createElement('td'));
+	      moreTr.appendChild(tdContents);
+	      moreTr.className = 'jsoneditor-show-more';
+	      this.dom.tr = moreTr;
+	      this.dom.moreContents = moreContents;
+	      this.dom.moreText = moreText;
+	    }
+
+	    this.updateDom();
+
+	    return this.dom.tr;
+	  };
+
+	  /**
+	   * Update the HTML dom of the Node
+	   */
+	  ShowMoreNode.prototype.updateDom = function(options) {
+	    if (this.isVisible()) {
+	      // attach to the right child node (the first non-visible child)
+	      this.dom.tr.node = this.parent.childs[this.parent.visibleChilds];
+
+	      if (!this.dom.tr.parentNode) {
+	        var nextTr = this.parent._getNextTr();
+	        if (nextTr) {
+	          nextTr.parentNode.insertBefore(this.dom.tr, nextTr);
+	        }
+	      }
+
+	      // update the counts in the text
+	      this.dom.moreText.nodeValue = this._getShowMoreText();
+
+	      // update left margin
+	      this.dom.moreContents.style.marginLeft = (this.getLevel() + 1) * 24 + 'px';
+	    }
+	    else {
+	      if (this.dom.tr && this.dom.tr.parentNode) {
+	        this.dom.tr.parentNode.removeChild(this.dom.tr);
+	      }
+	    }
+	  };
+
+	  ShowMoreNode.prototype._getShowMoreText = function() {
+	    return translate('showMoreStatus', {
+	      visibleChilds: this.parent.visibleChilds,
+	      totalChilds: this.parent.childs.length
+	    }) + ' ';
+	  };
+
+	  /**
+	   * Check whether the ShowMoreNode is currently visible.
+	   * the ShowMoreNode is visible when it's parent has more childs than
+	   * the current visibleChilds
+	   * @return {boolean} isVisible
+	   */
+	  ShowMoreNode.prototype.isVisible = function () {
+	    return this.parent.expanded && this.parent.childs.length > this.parent.visibleChilds;
+	  };
+
+	  /**
+	   * Handle an event. The event is caught centrally by the editor
+	   * @param {Event} event
+	   */
+	  ShowMoreNode.prototype.onEvent = function (event) {
+	    var type = event.type;
+	    if (type === 'keydown') {
+	      this.onKeyDown(event);
+	    }
+	  };
+
+	  return ShowMoreNode;
+	}
+
+	module.exports = showMoreNodeFactory;
+
+
+/***/ },
+/* 15 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -7912,6 +10016,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	  // create the html element
 	  var box = document.createElement('button');
+	  box.type = 'button';
 	  box.className = 'jsoneditor-modes jsoneditor-separator';
 	  box.innerHTML = currentTitle + ' &#x25BE;';
 	  box.title = 'Switch editor mode';
@@ -7955,26 +10060,408 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 12 */
+/* 16 */
+/***/ function(module, exports) {
+
+	'use strict';
+
+	function completely(config) {
+	    config = config || {};
+	    config.confirmKeys = config.confirmKeys || [39, 35, 9] // right, end, tab 
+	    config.caseSensitive = config.caseSensitive || false    // autocomplete case sensitive
+
+	    var fontSize = '';
+	    var fontFamily = '';    
+
+	    var wrapper = document.createElement('div');
+	    wrapper.style.position = 'relative';
+	    wrapper.style.outline = '0';
+	    wrapper.style.border = '0';
+	    wrapper.style.margin = '0';
+	    wrapper.style.padding = '0';
+
+	    var dropDown = document.createElement('div');
+	    dropDown.className = 'autocomplete dropdown';
+	    dropDown.style.position = 'absolute';
+	    dropDown.style.visibility = 'hidden';
+
+	    var spacer;
+	    var leftSide; // <-- it will contain the leftSide part of the textfield (the bit that was already autocompleted)
+	    var createDropDownController = function (elem, rs) {
+	        var rows = [];
+	        var ix = 0;
+	        var oldIndex = -1;
+
+	        var onMouseOver = function () { this.style.outline = '1px solid #ddd'; }
+	        var onMouseOut = function () { this.style.outline = '0'; }
+	        var onMouseDown = function () { p.hide(); p.onmouseselection(this.__hint, p.rs); }
+
+	        var p = {
+	            rs: rs,
+	            hide: function () {
+	                elem.style.visibility = 'hidden';
+	                //rs.hideDropDown();
+	            },
+	            refresh: function (token, array) {
+	                elem.style.visibility = 'hidden';
+	                ix = 0;
+	                elem.innerHTML = '';
+	                var vph = (window.innerHeight || document.documentElement.clientHeight);
+	                var rect = elem.parentNode.getBoundingClientRect();
+	                var distanceToTop = rect.top - 6;                        // heuristic give 6px 
+	                var distanceToBottom = vph - rect.bottom - 6;  // distance from the browser border.
+
+	                rows = [];
+	                for (var i = 0; i < array.length; i++) {
+
+	                    if (  (config.caseSensitive && array[i].indexOf(token) !== 0)
+	                        ||(!config.caseSensitive && array[i].toLowerCase().indexOf(token.toLowerCase()) !== 0)) { continue; }
+
+	                    var divRow = document.createElement('div');
+	                    divRow.className = 'item';
+	                    //divRow.style.color = config.color;
+	                    divRow.onmouseover = onMouseOver;
+	                    divRow.onmouseout = onMouseOut;
+	                    divRow.onmousedown = onMouseDown;
+	                    divRow.__hint = array[i];
+	                    divRow.innerHTML = array[i].substring(0, token.length) + '<b>' + array[i].substring(token.length) + '</b>';
+	                    rows.push(divRow);
+	                    elem.appendChild(divRow);
+	                }
+	                if (rows.length === 0) {
+	                    return; // nothing to show.
+	                }
+	                if (rows.length === 1 && (   (token.toLowerCase() === rows[0].__hint.toLowerCase() && !config.caseSensitive) 
+	                                           ||(token === rows[0].__hint && config.caseSensitive))){
+	                    return; // do not show the dropDown if it has only one element which matches what we have just displayed.
+	                }
+
+	                if (rows.length < 2) return;
+	                p.highlight(0);
+
+	                if (distanceToTop > distanceToBottom * 3) {        // Heuristic (only when the distance to the to top is 4 times more than distance to the bottom
+	                    elem.style.maxHeight = distanceToTop + 'px';  // we display the dropDown on the top of the input text
+	                    elem.style.top = '';
+	                    elem.style.bottom = '100%';
+	                } else {
+	                    elem.style.top = '100%';
+	                    elem.style.bottom = '';
+	                    elem.style.maxHeight = distanceToBottom + 'px';
+	                }
+	                elem.style.visibility = 'visible';
+	            },
+	            highlight: function (index) {
+	                if (oldIndex != -1 && rows[oldIndex]) {
+	                    rows[oldIndex].className = "item";
+	                }
+	                rows[index].className = "item hover"; 
+	                oldIndex = index;
+	            },
+	            move: function (step) { // moves the selection either up or down (unless it's not possible) step is either +1 or -1.
+	                if (elem.style.visibility === 'hidden') return ''; // nothing to move if there is no dropDown. (this happens if the user hits escape and then down or up)
+	                if (ix + step === -1 || ix + step === rows.length) return rows[ix].__hint; // NO CIRCULAR SCROLLING. 
+	                ix += step;
+	                p.highlight(ix);
+	                return rows[ix].__hint;//txtShadow.value = uRows[uIndex].__hint ;
+	            },
+	            onmouseselection: function () { } // it will be overwritten. 
+	        };
+	        return p;
+	    }
+
+	    function setEndOfContenteditable(contentEditableElement) {
+	        var range, selection;
+	        if (document.createRange)//Firefox, Chrome, Opera, Safari, IE 9+
+	        {
+	            range = document.createRange();//Create a range (a range is a like the selection but invisible)
+	            range.selectNodeContents(contentEditableElement);//Select the entire contents of the element with the range
+	            range.collapse(false);//collapse the range to the end point. false means collapse to end rather than the start
+	            selection = window.getSelection();//get the selection object (allows you to change selection)
+	            selection.removeAllRanges();//remove any selections already made
+	            selection.addRange(range);//make the range you have just created the visible selection
+	        }
+	        else if (document.selection)//IE 8 and lower
+	        {
+	            range = document.body.createTextRange();//Create a range (a range is a like the selection but invisible)
+	            range.moveToElementText(contentEditableElement);//Select the entire contents of the element with the range
+	            range.collapse(false);//collapse the range to the end point. false means collapse to end rather than the start
+	            range.select();//Select the range (make it the visible selection
+	        }
+	    }
+
+	    function calculateWidthForText(text) {
+	        if (spacer === undefined) { // on first call only.
+	            spacer = document.createElement('span');
+	            spacer.style.visibility = 'hidden';
+	            spacer.style.position = 'fixed';
+	            spacer.style.outline = '0';
+	            spacer.style.margin = '0';
+	            spacer.style.padding = '0';
+	            spacer.style.border = '0';
+	            spacer.style.left = '0';
+	            spacer.style.whiteSpace = 'pre';
+	            spacer.style.fontSize = fontSize;
+	            spacer.style.fontFamily = fontFamily;
+	            spacer.style.fontWeight = 'normal';
+	            document.body.appendChild(spacer);
+	        }
+
+	        // Used to encode an HTML string into a plain text.
+	        // taken from http://stackoverflow.com/questions/1219860/javascript-jquery-html-encoding
+	        spacer.innerHTML = String(text).replace(/&/g, '&amp;')
+	            .replace(/"/g, '&quot;')
+	            .replace(/'/g, '&#39;')
+	            .replace(/</g, '&lt;')
+	            .replace(/>/g, '&gt;');
+	        return spacer.getBoundingClientRect().right;
+	    }
+
+	    var rs = {
+	        onArrowDown: function () { }, // defaults to no action.
+	        onArrowUp: function () { },   // defaults to no action.
+	        onEnter: function () { },     // defaults to no action.
+	        onTab: function () { },       // defaults to no action.
+	        startFrom: 0,
+	        options: [],
+	        element: null,
+	        elementHint: null,
+	        elementStyle: null,
+	        wrapper: wrapper,      // Only to allow  easy access to the HTML elements to the final user (possibly for minor customizations)
+	        show: function (element, startPos, options) {
+	            this.startFrom = startPos;
+	            this.wrapper.remove();
+	            if (this.elementHint) {
+	                this.elementHint.remove();
+	                this.elementHint = null;
+	            }
+	            
+	            if (fontSize == '') {
+	                fontSize = window.getComputedStyle(element).getPropertyValue('font-size');
+	            }
+	            if (fontFamily == '') {
+	                fontFamily = window.getComputedStyle(element).getPropertyValue('font-family');
+	            }
+	            
+	            var w = element.getBoundingClientRect().right - element.getBoundingClientRect().left;
+	            dropDown.style.marginLeft = '0';
+	            dropDown.style.marginTop = element.getBoundingClientRect().height + 'px';
+	            this.options = options;
+
+	            if (this.element != element) {
+	                this.element = element;
+	                this.elementStyle = {
+	                    zIndex: this.element.style.zIndex,
+	                    position: this.element.style.position,
+	                    backgroundColor: this.element.style.backgroundColor,
+	                    borderColor: this.element.style.borderColor
+	                }
+	            }
+
+	            this.element.style.zIndex = 3;
+	            this.element.style.position = 'relative';
+	            this.element.style.backgroundColor = 'transparent';
+	            this.element.style.borderColor = 'transparent';
+
+	            this.elementHint = element.cloneNode();
+	            this.elementHint.className = 'autocomplete hint';
+	            this.elementHint.style.zIndex = 2;
+	            this.elementHint.style.position = 'absolute';
+	            this.elementHint.onfocus = function () { this.element.focus(); }.bind(this);
+
+
+
+	            if (this.element.addEventListener) {
+	                this.element.removeEventListener("keydown", keyDownHandler);
+	                this.element.addEventListener("keydown", keyDownHandler, false);
+	                this.element.removeEventListener("blur", onBlurHandler);
+	                this.element.addEventListener("blur", onBlurHandler, false);                
+	            } 
+
+	            wrapper.appendChild(this.elementHint);
+	            wrapper.appendChild(dropDown);
+	            element.parentElement.appendChild(wrapper);
+
+
+	            this.repaint(element);
+	        },
+	        setText: function (text) {
+	            this.element.innerText = text;
+	        },
+	        getText: function () {
+	            return this.element.innerText;
+	        },
+	        hideDropDown: function () {
+	            this.wrapper.remove();
+	            if (this.elementHint) {
+	                this.elementHint.remove();
+	                this.elementHint = null;
+	                dropDownController.hide();
+	                this.element.style.zIndex = this.elementStyle.zIndex;
+	                this.element.style.position = this.elementStyle.position;
+	                this.element.style.backgroundColor = this.elementStyle.backgroundColor;
+	                this.element.style.borderColor = this.elementStyle.borderColor;
+	            }
+	            
+	        },
+	        repaint: function (element) {
+	            var text = element.innerText;
+	            text = text.replace('\n', '');
+
+	            var startFrom = this.startFrom;
+	            var options = this.options;
+	            var optionsLength = this.options.length;
+
+	            // breaking text in leftSide and token.
+	            
+	            var token = text.substring(this.startFrom);
+	            leftSide = text.substring(0, this.startFrom);
+	            
+	            for (var i = 0; i < optionsLength; i++) {
+	                var opt = this.options[i];
+	                if (   (!config.caseSensitive && opt.toLowerCase().indexOf(token.toLowerCase()) === 0)
+	                    || (config.caseSensitive && opt.indexOf(token) === 0)) {   // <-- how about upperCase vs. lowercase
+	                    this.elementHint.innerText = leftSide + token + opt.substring(token.length);
+	                    this.elementHint.realInnerText = leftSide + opt;
+	                    break;
+	                }
+	            }
+	            // moving the dropDown and refreshing it.
+	            dropDown.style.left = calculateWidthForText(leftSide) + 'px';
+	            dropDownController.refresh(token, this.options);
+	            this.elementHint.style.width = calculateWidthForText(this.elementHint.innerText) + 10 + 'px'
+	            var wasDropDownHidden = (dropDown.style.visibility == 'hidden');
+	            if (!wasDropDownHidden)
+	                this.elementHint.style.width = calculateWidthForText(this.elementHint.innerText) + dropDown.clientWidth + 'px';
+	        }
+	    };
+
+	    var dropDownController = createDropDownController(dropDown, rs);
+
+	    var keyDownHandler = function (e) {
+	        //console.log("Keydown:" + e.keyCode);
+	        e = e || window.event;
+	        var keyCode = e.keyCode;
+
+	        if (this.elementHint == null) return;
+
+	        if (keyCode == 33) { return; } // page up (do nothing)
+	        if (keyCode == 34) { return; } // page down (do nothing);
+
+	        if (keyCode == 27) { //escape
+	            rs.hideDropDown();
+	            rs.element.focus();
+	            e.preventDefault();
+	            e.stopPropagation();
+	            return;
+	        }
+
+	        var text = this.element.innerText;
+	        text = text.replace('\n', '');
+	        var startFrom = this.startFrom;
+
+	        if (config.confirmKeys.indexOf(keyCode) >= 0) { //  (autocomplete triggered)
+	            if (keyCode == 9) {                 
+	                if (this.elementHint.innerText.length == 0) {
+	                    rs.onTab(); 
+	                }
+	            }
+	            if (this.elementHint.innerText.length > 0) { // if there is a hint               
+	                if (this.element.innerText != this.elementHint.realInnerText) {
+	                    this.element.innerText = this.elementHint.realInnerText;
+	                    rs.hideDropDown();
+	                    setEndOfContenteditable(this.element);
+	                    if (keyCode == 9) {                
+	                        rs.element.focus();
+	                        e.preventDefault();
+	                        e.stopPropagation();
+	                    }
+	                }                
+	            }
+	            return;
+	        }
+
+	        if (keyCode == 13) {       // enter  (autocomplete triggered)
+	            if (this.elementHint.innerText.length == 0) { // if there is a hint
+	                rs.onEnter();
+	            } else {
+	                var wasDropDownHidden = (dropDown.style.visibility == 'hidden');
+	                dropDownController.hide();
+
+	                if (wasDropDownHidden) {
+	                    rs.hideDropDown();
+	                    rs.element.focus();
+	                    rs.onEnter();
+	                    return;
+	                }
+
+	                this.element.innerText = this.elementHint.realInnerText;
+	                rs.hideDropDown();
+	                setEndOfContenteditable(this.element);
+	                e.preventDefault();
+	                e.stopPropagation();
+	            }
+	            return;
+	        }
+
+	        if (keyCode == 40) {     // down
+	            var token = text.substring(this.startFrom);
+	            var m = dropDownController.move(+1);
+	            if (m == '') { rs.onArrowDown(); }
+	            this.elementHint.innerText = leftSide + token + m.substring(token.length);
+	            this.elementHint.realInnerText = leftSide + m;
+	            e.preventDefault();
+	            e.stopPropagation();
+	            return;
+	        }
+
+	        if (keyCode == 38) {    // up
+	            var token = text.substring(this.startFrom);
+	            var m = dropDownController.move(-1);
+	            if (m == '') { rs.onArrowUp(); }
+	            this.elementHint.innerText = leftSide + token + m.substring(token.length);
+	            this.elementHint.realInnerText = leftSide + m;
+	            e.preventDefault();
+	            e.stopPropagation();
+	            return;
+	        }
+
+	    }.bind(rs);
+
+	    var onBlurHandler = function (e) {
+	        rs.hideDropDown();
+	        //console.log("Lost focus.");
+	    }.bind(rs);
+
+	    dropDownController.onmouseselection = function (text, rs) {
+	        rs.element.innerText = rs.elementHint.innerText = leftSide + text;        
+	        rs.hideDropDown();   
+	        window.setTimeout(function () {
+	            rs.element.focus();
+	            setEndOfContenteditable(rs.element);  
+	        }, 1);              
+	    };
+
+	    return rs;
+	}
+
+	module.exports = completely;
+
+/***/ },
+/* 17 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	var ace;
-	try {
-	  ace = __webpack_require__(13);
-	}
-	catch (err) {
-	  // failed to load ace, no problem, we will fall back to plain text
-	}
-
-	var ModeSwitcher = __webpack_require__(11);
+	var ace = __webpack_require__(18);
+	var ModeSwitcher = __webpack_require__(15);
 	var util = __webpack_require__(4);
 
 	// create a mixin with the functions for text mode
 	var textmode = {};
 
 	var MAX_ERRORS = 3; // maximum number of displayed errors at the bottom
+
+	var DEFAULT_THEME = 'ace/theme/jsoneditor';
 
 	/**
 	 * Create a text editor
@@ -7989,16 +10476,25 @@ return /******/ (function(modules) { // webpackBootstrap
 	 *                                                       triggered on change
 	 *                             {function} onModeChange   Callback method
 	 *                                                       triggered after setMode
+	 *                             {function} onEditable     Determine if textarea is readOnly
+	 *                                                       readOnly defaults true
 	 *                             {Object} ace              A custom instance of
 	 *                                                       Ace editor.
 	 *                             {boolean} escapeUnicode   If true, unicode
 	 *                                                       characters are escaped.
 	 *                                                       false by default.
+	 *                             {function} onTextSelectionChange Callback method, 
+	 *                                                              triggered on text selection change
 	 * @private
 	 */
 	textmode.create = function (container, options) {
 	  // read options
 	  options = options || {};
+	  
+	  if(typeof options.statusBar === 'undefined') {
+	    options.statusBar = true;
+	  }
+
 	  this.options = options;
 
 	  // indentation
@@ -8011,6 +10507,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	  // grab ace from options if provided
 	  var _ace = options.ace ? options.ace : ace;
+	  // TODO: make the option options.ace deprecated, it's not needed anymore (see #309)
 
 	  // determine mode
 	  this.mode = (options.mode == 'code') ? 'code' : 'text';
@@ -8023,7 +10520,19 @@ return /******/ (function(modules) { // webpackBootstrap
 	  }
 
 	  // determine theme
-	  this.theme = options.theme || 'ace/theme/jsoneditor';
+	  this.theme = options.theme || DEFAULT_THEME;
+	  if (this.theme === DEFAULT_THEME && _ace) {
+	    try {
+	      __webpack_require__(22);
+	    }
+	    catch (err) {
+	      console.error(err);
+	    }
+	  }
+
+	  if (options.onTextSelectionChange) {
+	    this.onTextSelectionChange(options.onTextSelectionChange);
+	  }
 
 	  var me = this;
 	  this.container = container;
@@ -8047,7 +10556,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  this.frame.onkeydown = function (event) {
 	    me._onKeyDown(event);
 	  };
-
+	  
 	  // create menu
 	  this.menu = document.createElement('div');
 	  this.menu.className = 'jsoneditor-menu';
@@ -8055,6 +10564,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	  // create format button
 	  var buttonFormat = document.createElement('button');
+	  buttonFormat.type = 'button';
 	  buttonFormat.className = 'jsoneditor-format';
 	  buttonFormat.title = 'Format JSON data, with proper indentation and line feeds (Ctrl+\\)';
 	  this.menu.appendChild(buttonFormat);
@@ -8070,12 +10580,29 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	  // create compact button
 	  var buttonCompact = document.createElement('button');
+	  buttonCompact.type = 'button';
 	  buttonCompact.className = 'jsoneditor-compact';
 	  buttonCompact.title = 'Compact JSON data, remove all whitespaces (Ctrl+Shift+\\)';
 	  this.menu.appendChild(buttonCompact);
 	  buttonCompact.onclick = function () {
 	    try {
 	      me.compact();
+	      me._onChange();
+	    }
+	    catch (err) {
+	      me._onError(err);
+	    }
+	  };
+
+	  // create repair button
+	  var buttonRepair = document.createElement('button');
+	  buttonRepair.type = 'button';
+	  buttonRepair.className = 'jsoneditor-repair';
+	  buttonRepair.title = 'Repair JSON: fix quotes and escape characters, remove comments and JSONP notation, turn JavaScript objects into JSON.';
+	  this.menu.appendChild(buttonRepair);
+	  buttonRepair.onclick = function () {
+	    try {
+	      me.repair();
 	      me._onChange();
 	    }
 	    catch (err) {
@@ -8092,6 +10619,11 @@ return /******/ (function(modules) { // webpackBootstrap
 	    });
 	  }
 
+	  var emptyNode = {};
+	  var isReadOnly = (this.options.onEditable
+	  && typeof(this.options.onEditable === 'function')
+	  && !this.options.onEditable(emptyNode));
+
 	  this.content = document.createElement('div');
 	  this.content.className = 'jsoneditor-outer';
 	  this.frame.appendChild(this.content);
@@ -8107,6 +10639,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var aceEditor = _ace.edit(this.editorDom);
 	    aceEditor.$blockScrolling = Infinity;
 	    aceEditor.setTheme(this.theme);
+	    aceEditor.setOptions({ readOnly: isReadOnly });
 	    aceEditor.setShowPrintMargin(false);
 	    aceEditor.setFontSize(13);
 	    aceEditor.getSession().setMode('ace/mode/json');
@@ -8146,6 +10679,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    // register onchange event
 	    aceEditor.on('change', this._onChange.bind(this));
+	    aceEditor.on('changeSelection', this._onSelect.bind(this));
 	  }
 	  else {
 	    // load a plain text textarea
@@ -8154,6 +10688,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    textarea.spellcheck = false;
 	    this.content.appendChild(textarea);
 	    this.textarea = textarea;
+	    this.textarea.readOnly = isReadOnly;
 
 	    // register onchange event
 	    if (this.textarea.oninput === null) {
@@ -8163,9 +10698,69 @@ return /******/ (function(modules) { // webpackBootstrap
 	      // oninput is undefined. For IE8-
 	      this.textarea.onchange = this._onChange.bind(this);
 	    }
+
+	    textarea.onselect = this._onSelect.bind(this);
+	    textarea.onmousedown = this._onMouseDown.bind(this);
+	    textarea.onblur = this._onBlur.bind(this);
 	  }
 
-	  this.setSchema(this.options.schema);
+	  var validationErrorsContainer = document.createElement('div');
+	  validationErrorsContainer.className = 'validation-errors-container';
+	  this.dom.validationErrorsContainer = validationErrorsContainer;
+	  this.frame.appendChild(validationErrorsContainer);
+
+	  if (options.statusBar) {
+	    util.addClassName(this.content, 'has-status-bar');
+
+	    this.curserInfoElements = {};
+	    var statusBar = document.createElement('div');
+	    this.dom.statusBar = statusBar;
+	    statusBar.className = 'jsoneditor-statusbar';
+	    this.frame.appendChild(statusBar);
+
+	    var lnLabel = document.createElement('span');
+	    lnLabel.className = 'jsoneditor-curserinfo-label';
+	    lnLabel.innerText = 'Ln:';
+
+	    var lnVal = document.createElement('span');
+	    lnVal.className = 'jsoneditor-curserinfo-val';
+	    lnVal.innerText = '1';
+
+	    statusBar.appendChild(lnLabel);
+	    statusBar.appendChild(lnVal);
+
+	    var colLabel = document.createElement('span');
+	    colLabel.className = 'jsoneditor-curserinfo-label';
+	    colLabel.innerText = 'Col:';
+
+	    var colVal = document.createElement('span');
+	    colVal.className = 'jsoneditor-curserinfo-val';
+	    colVal.innerText = '1';
+
+	    statusBar.appendChild(colLabel);
+	    statusBar.appendChild(colVal);
+
+	    this.curserInfoElements.colVal = colVal;
+	    this.curserInfoElements.lnVal = lnVal;
+
+	    var countLabel = document.createElement('span');
+	    countLabel.className = 'jsoneditor-curserinfo-label';
+	    countLabel.innerText = 'characters selected';
+	    countLabel.style.display = 'none';
+
+	    var countVal = document.createElement('span');
+	    countVal.className = 'jsoneditor-curserinfo-count';
+	    countVal.innerText = '0';
+	    countVal.style.display = 'none';
+
+	    this.curserInfoElements.countLabel = countLabel;
+	    this.curserInfoElements.countVal = countVal;
+
+	    statusBar.appendChild(countVal);
+	    statusBar.appendChild(countLabel);
+	  }
+
+	  this.setSchema(this.options.schema, this.options.schemaRefs);  
 	};
 
 	/**
@@ -8187,6 +10782,16 @@ return /******/ (function(modules) { // webpackBootstrap
 	      console.error('Error in onChange callback: ', err);
 	    }
 	  }
+	};
+
+	/**
+	 * Handle text selection
+	 * Calculates the cursor position and selection range and updates menu
+	 * @private
+	 */
+	textmode._onSelect = function () {
+	  this._updateCursorInfo();
+	  this._emitSelectionChange();
 	};
 
 	/**
@@ -8214,7 +10819,106 @@ return /******/ (function(modules) { // webpackBootstrap
 	    event.preventDefault();
 	    event.stopPropagation();
 	  }
+
+	  this._updateCursorInfo();
+	  this._emitSelectionChange();
 	};
+
+	/**
+	 * Event handler for mousedown.
+	 * @param {Event} event
+	 * @private
+	 */
+	textmode._onMouseDown = function (event) {
+	  this._updateCursorInfo();
+	  this._emitSelectionChange();
+	};
+
+	/**
+	 * Event handler for blur.
+	 * @param {Event} event
+	 * @private
+	 */
+	textmode._onBlur = function (event) {
+	  this._updateCursorInfo();
+	  this._emitSelectionChange();
+	};
+
+	/**
+	 * Update the cursor info and the status bar, if presented
+	 */
+	textmode._updateCursorInfo = function () {
+	  var me = this;
+	  var line, col, count;
+
+	  if (this.textarea) {
+	    setTimeout(function() { //this to verify we get the most updated textarea cursor selection
+	      var selectionRange = util.getInputSelection(me.textarea);
+	      
+	      if (selectionRange.startIndex !== selectionRange.endIndex) {
+	        count = selectionRange.endIndex - selectionRange.startIndex;
+	      }
+	      
+	      if (count && me.cursorInfo && me.cursorInfo.line === selectionRange.end.row && me.cursorInfo.column === selectionRange.end.column) {
+	        line = selectionRange.start.row;
+	        col = selectionRange.start.column;
+	      } else {
+	        line = selectionRange.end.row;
+	        col = selectionRange.end.column;
+	      }
+	      
+	      me.cursorInfo = {
+	        line: line,
+	        column: col,
+	        count: count
+	      }
+
+	      if(me.options.statusBar) {
+	        updateDisplay();
+	      }
+	    },0);
+	    
+	  } else if (this.aceEditor && this.curserInfoElements) {
+	    var curserPos = this.aceEditor.getCursorPosition();
+	    var selectedText = this.aceEditor.getSelectedText();
+
+	    line = curserPos.row + 1;
+	    col = curserPos.column + 1;
+	    count = selectedText.length;
+
+	    me.cursorInfo = {
+	      line: line,
+	      column: col,
+	      count: count
+	    }
+
+	    if(this.options.statusBar) {
+	      updateDisplay();
+	    }
+	  }
+
+	  function updateDisplay() {
+
+	    if (me.curserInfoElements.countVal.innerText !== count) {
+	      me.curserInfoElements.countVal.innerText = count;
+	      me.curserInfoElements.countVal.style.display = count ? 'inline' : 'none';
+	      me.curserInfoElements.countLabel.style.display = count ? 'inline' : 'none';
+	    }
+	    me.curserInfoElements.lnVal.innerText = line;
+	    me.curserInfoElements.colVal.innerText = col;
+	  }
+	};
+
+	/**
+	 * emits selection change callback, if given
+	 * @private
+	 */
+	textmode._emitSelectionChange = function () {
+	  if(this._selectionChangedHandler) {
+	    var currentSelection = this.getTextSelection();
+	    this._selectionChangedHandler(currentSelection.start, currentSelection.end, currentSelection.text);
+	  }
+	}
 
 	/**
 	 * Destroy the editor. Clean up DOM, event listeners, and web workers.
@@ -8241,7 +10945,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	};
 
 	/**
-	 * Compact the code in the formatter
+	 * Compact the code in the text editor
 	 */
 	textmode.compact = function () {
 	  var json = this.get();
@@ -8250,12 +10954,21 @@ return /******/ (function(modules) { // webpackBootstrap
 	};
 
 	/**
-	 * Format the code in the formatter
+	 * Format the code in the text editor
 	 */
 	textmode.format = function () {
 	  var json = this.get();
 	  var text = JSON.stringify(json, null, this.indentation);
 	  this.setText(text);
+	};
+
+	/**
+	 * Repair the code in the text editor
+	 */
+	textmode.repair = function () {
+	  var text = this.getText();
+	  var sanitizedText = util.sanitize(text);
+	  this.setText(sanitizedText);
 	};
 
 	/**
@@ -8350,7 +11063,6 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    this.options.onChange = originalOnChange;
 	  }
-
 	  // validate JSON schema
 	  this.validate();
 	};
@@ -8390,7 +11102,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    }
 	  }
 
-	  if (errors.length > 0) {
+	  if (errors.length > 0) {  
 	    // limit the number of displayed errors
 	    var limit = errors.length > MAX_ERRORS;
 	    if (limit) {
@@ -8418,9 +11130,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	        '</table>';
 
 	    this.dom.validationErrors = validationErrors;
-	    this.frame.appendChild(validationErrors);
+	    this.dom.validationErrorsContainer.appendChild(validationErrors);
 
-	    var height = validationErrors.clientHeight;
+	    var height = validationErrors.clientHeight +
+	        (this.dom.statusBar ? this.dom.statusBar.clientHeight : 0);
 	    this.content.style.marginBottom = (-height) + 'px';
 	    this.content.style.paddingBottom = height + 'px';
 	  }
@@ -8429,6 +11142,112 @@ return /******/ (function(modules) { // webpackBootstrap
 	  if (this.aceEditor) {
 	    var force = false;
 	    this.aceEditor.resize(force);
+	  }
+	};
+
+	/**
+	 * Get the selection details
+	 * @returns {{start:{row:Number, column:Number},end:{row:Number, column:Number},text:String}}
+	 */
+	textmode.getTextSelection = function () {
+	  var selection = {};
+	  if (this.textarea) {
+	    var selectionRange = util.getInputSelection(this.textarea);
+
+	    if (this.cursorInfo && this.cursorInfo.line === selectionRange.end.row && this.cursorInfo.column === selectionRange.end.column) {
+	      //selection direction is bottom => up
+	      selection.start = selectionRange.end;
+	      selection.end = selectionRange.start;
+	    } else {
+	      selection = selectionRange;
+	    }
+
+	    return {
+	      start: selection.start,
+	      end: selection.end,
+	      text: this.textarea.value.substring(selectionRange.startIndex, selectionRange.endIndex)
+	    }
+	  }
+
+	  if (this.aceEditor) {
+	    var aceSelection = this.aceEditor.getSelection();
+	    var selectedText = this.aceEditor.getSelectedText();
+	    var range = aceSelection.getRange();
+	    var lead = aceSelection.getSelectionLead();
+
+	    if (lead.row === range.end.row && lead.column === range.end.column) {
+	      selection = range;
+	    } else {
+	      //selection direction is bottom => up
+	      selection.start = range.end;
+	      selection.end = range.start;
+	    }
+	    
+	    return {
+	      start: {
+	        row: selection.start.row + 1,
+	        column: selection.start.column + 1
+	      },
+	      end: {
+	        row: selection.end.row + 1,
+	        column: selection.end.column + 1
+	      },
+	      text: selectedText
+	    };
+	  }
+	};
+
+	/**
+	 * Callback registraion for selection change
+	 * @param {selectionCallback} callback
+	 * 
+	 * @callback selectionCallback
+	 * @param {{row:Number, column:Number}} startPos selection start position
+	 * @param {{row:Number, column:Number}} endPos selected end position
+	 * @param {String} text selected text
+	 */
+	textmode.onTextSelectionChange = function (callback) {
+	  if (typeof callback === 'function') {
+	    this._selectionChangedHandler = util.debounce(callback, this.DEBOUNCE_INTERVAL);
+	  }
+	};
+
+	/**
+	 * Set selection on editor's text
+	 * @param {{row:Number, column:Number}} startPos selection start position
+	 * @param {{row:Number, column:Number}} endPos selected end position
+	 */
+	textmode.setTextSelection = function (startPos, endPos) {
+
+	  if (!startPos || !endPos) return;
+
+	  if (this.textarea) {
+	    var startIndex = util.getIndexForPosition(this.textarea, startPos.row, startPos.column);
+	    var endIndex = util.getIndexForPosition(this.textarea, endPos.row, endPos.column);
+	    if (startIndex > -1 && endIndex  > -1) {
+	      if (this.textarea.setSelectionRange) { 
+	        this.textarea.focus();
+	        this.textarea.setSelectionRange(startIndex, endIndex);
+	      } else if (this.textarea.createTextRange) { // IE < 9
+	        var range = this.textarea.createTextRange();
+	        range.collapse(true);
+	        range.moveEnd('character', endIndex);
+	        range.moveStart('character', startIndex);
+	        range.select();
+	      }
+	    }
+	  } else if (this.aceEditor) {
+	    var range = {
+	      start:{
+	        row: startPos.row - 1,
+	        column: startPos.column - 1
+	      },
+	      end:{
+	        row: endPos.row - 1,
+	        column: endPos.column - 1
+	      }
+	    };
+	    this.aceEditor.selection.setRange(range);
 	  }
 	};
 
@@ -8450,22 +11269,34 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 13 */
+/* 18 */
 /***/ function(module, exports, __webpack_require__) {
 
-	// load brace
-	var ace = __webpack_require__(!(function webpackMissingModule() { var e = new Error("Cannot find module \"brace\""); e.code = 'MODULE_NOT_FOUND'; throw e; }()));
+	var ace
+	if (window.ace) {
+	  // use the already loaded instance of Ace
+	  ace = window.ace
+	}
+	else {
+	  try {
+	    // load brace
+	    ace = __webpack_require__(!(function webpackMissingModule() { var e = new Error("Cannot find module \"brace\""); e.code = 'MODULE_NOT_FOUND'; throw e; }()));
 
-	// load required ace modules
-	__webpack_require__(14);
-	__webpack_require__(16);
-	__webpack_require__(17);
+	    // load required Ace plugins
+	    __webpack_require__(19);
+	    __webpack_require__(21);
+	  }
+	  catch (err) {
+	    // failed to load brace (can be minimalist bundle).
+	    // No worries, the editor will fall back to plain text if needed.
+	  }
+	}
 
 	module.exports = ace;
 
 
 /***/ },
-/* 14 */
+/* 19 */
 /***/ function(module, exports, __webpack_require__) {
 
 	ace.define("ace/mode/json_highlight_rules",["require","exports","module","ace/lib/oop","ace/mode/text_highlight_rules"], function(acequire, exports, module) {
@@ -8494,11 +11325,15 @@ return /******/ (function(modules) { // webpackBootstrap
 	                token : "constant.language.boolean",
 	                regex : "(?:true|false)\\b"
 	            }, {
-	                token : "invalid.illegal", // single quoted strings are not allowed
+	                token : "text", // single quoted strings are not allowed
 	                regex : "['](?:(?:\\\\.)|(?:[^'\\\\]))*?[']"
 	            }, {
-	                token : "invalid.illegal", // comments are not allowed
+	                token : "comment", // comments are not allowed, but who cares?
 	                regex : "\\/\\/.*$"
+	            }, {
+	                token : "comment.start", // comments are not allowed, but who cares?
+	                regex : "\\/\\*",
+	                next  : "comment"
 	            }, {
 	                token : "paren.lparen",
 	                regex : "[[({]"
@@ -8516,15 +11351,19 @@ return /******/ (function(modules) { // webpackBootstrap
 	                regex : /\\(?:x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|["\\\/bfnrt])/
 	            }, {
 	                token : "string",
-	                regex : '[^"\\\\]+'
-	            }, {
-	                token : "string",
-	                regex : '"',
+	                regex : '"|$',
 	                next  : "start"
 	            }, {
-	                token : "string",
-	                regex : "",
+	                defaultToken : "string"
+	            }
+	        ],
+	        "comment" : [
+	            {
+	                token : "comment.end", // comments are not allowed, but who cares?
+	                regex : "\\*\\/",
 	                next  : "start"
+	            }, {
+	                defaultToken: "comment"
 	            }
 	        ]
 	    };
@@ -8576,363 +11415,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	exports.MatchingBraceOutdent = MatchingBraceOutdent;
 	});
 
-	ace.define("ace/mode/behaviour/cstyle",["require","exports","module","ace/lib/oop","ace/mode/behaviour","ace/token_iterator","ace/lib/lang"], function(acequire, exports, module) {
-	"use strict";
-
-	var oop = acequire("../../lib/oop");
-	var Behaviour = acequire("../behaviour").Behaviour;
-	var TokenIterator = acequire("../../token_iterator").TokenIterator;
-	var lang = acequire("../../lib/lang");
-
-	var SAFE_INSERT_IN_TOKENS =
-	    ["text", "paren.rparen", "punctuation.operator"];
-	var SAFE_INSERT_BEFORE_TOKENS =
-	    ["text", "paren.rparen", "punctuation.operator", "comment"];
-
-	var context;
-	var contextCache = {};
-	var initContext = function(editor) {
-	    var id = -1;
-	    if (editor.multiSelect) {
-	        id = editor.selection.index;
-	        if (contextCache.rangeCount != editor.multiSelect.rangeCount)
-	            contextCache = {rangeCount: editor.multiSelect.rangeCount};
-	    }
-	    if (contextCache[id])
-	        return context = contextCache[id];
-	    context = contextCache[id] = {
-	        autoInsertedBrackets: 0,
-	        autoInsertedRow: -1,
-	        autoInsertedLineEnd: "",
-	        maybeInsertedBrackets: 0,
-	        maybeInsertedRow: -1,
-	        maybeInsertedLineStart: "",
-	        maybeInsertedLineEnd: ""
-	    };
-	};
-
-	var getWrapped = function(selection, selected, opening, closing) {
-	    var rowDiff = selection.end.row - selection.start.row;
-	    return {
-	        text: opening + selected + closing,
-	        selection: [
-	                0,
-	                selection.start.column + 1,
-	                rowDiff,
-	                selection.end.column + (rowDiff ? 0 : 1)
-	            ]
-	    };
-	};
-
-	var CstyleBehaviour = function() {
-	    this.add("braces", "insertion", function(state, action, editor, session, text) {
-	        var cursor = editor.getCursorPosition();
-	        var line = session.doc.getLine(cursor.row);
-	        if (text == '{') {
-	            initContext(editor);
-	            var selection = editor.getSelectionRange();
-	            var selected = session.doc.getTextRange(selection);
-	            if (selected !== "" && selected !== "{" && editor.getWrapBehavioursEnabled()) {
-	                return getWrapped(selection, selected, '{', '}');
-	            } else if (CstyleBehaviour.isSaneInsertion(editor, session)) {
-	                if (/[\]\}\)]/.test(line[cursor.column]) || editor.inMultiSelectMode) {
-	                    CstyleBehaviour.recordAutoInsert(editor, session, "}");
-	                    return {
-	                        text: '{}',
-	                        selection: [1, 1]
-	                    };
-	                } else {
-	                    CstyleBehaviour.recordMaybeInsert(editor, session, "{");
-	                    return {
-	                        text: '{',
-	                        selection: [1, 1]
-	                    };
-	                }
-	            }
-	        } else if (text == '}') {
-	            initContext(editor);
-	            var rightChar = line.substring(cursor.column, cursor.column + 1);
-	            if (rightChar == '}') {
-	                var matching = session.$findOpeningBracket('}', {column: cursor.column + 1, row: cursor.row});
-	                if (matching !== null && CstyleBehaviour.isAutoInsertedClosing(cursor, line, text)) {
-	                    CstyleBehaviour.popAutoInsertedClosing();
-	                    return {
-	                        text: '',
-	                        selection: [1, 1]
-	                    };
-	                }
-	            }
-	        } else if (text == "\n" || text == "\r\n") {
-	            initContext(editor);
-	            var closing = "";
-	            if (CstyleBehaviour.isMaybeInsertedClosing(cursor, line)) {
-	                closing = lang.stringRepeat("}", context.maybeInsertedBrackets);
-	                CstyleBehaviour.clearMaybeInsertedClosing();
-	            }
-	            var rightChar = line.substring(cursor.column, cursor.column + 1);
-	            if (rightChar === '}') {
-	                var openBracePos = session.findMatchingBracket({row: cursor.row, column: cursor.column+1}, '}');
-	                if (!openBracePos)
-	                     return null;
-	                var next_indent = this.$getIndent(session.getLine(openBracePos.row));
-	            } else if (closing) {
-	                var next_indent = this.$getIndent(line);
-	            } else {
-	                CstyleBehaviour.clearMaybeInsertedClosing();
-	                return;
-	            }
-	            var indent = next_indent + session.getTabString();
-
-	            return {
-	                text: '\n' + indent + '\n' + next_indent + closing,
-	                selection: [1, indent.length, 1, indent.length]
-	            };
-	        } else {
-	            CstyleBehaviour.clearMaybeInsertedClosing();
-	        }
-	    });
-
-	    this.add("braces", "deletion", function(state, action, editor, session, range) {
-	        var selected = session.doc.getTextRange(range);
-	        if (!range.isMultiLine() && selected == '{') {
-	            initContext(editor);
-	            var line = session.doc.getLine(range.start.row);
-	            var rightChar = line.substring(range.end.column, range.end.column + 1);
-	            if (rightChar == '}') {
-	                range.end.column++;
-	                return range;
-	            } else {
-	                context.maybeInsertedBrackets--;
-	            }
-	        }
-	    });
-
-	    this.add("parens", "insertion", function(state, action, editor, session, text) {
-	        if (text == '(') {
-	            initContext(editor);
-	            var selection = editor.getSelectionRange();
-	            var selected = session.doc.getTextRange(selection);
-	            if (selected !== "" && editor.getWrapBehavioursEnabled()) {
-	                return getWrapped(selection, selected, '(', ')');
-	            } else if (CstyleBehaviour.isSaneInsertion(editor, session)) {
-	                CstyleBehaviour.recordAutoInsert(editor, session, ")");
-	                return {
-	                    text: '()',
-	                    selection: [1, 1]
-	                };
-	            }
-	        } else if (text == ')') {
-	            initContext(editor);
-	            var cursor = editor.getCursorPosition();
-	            var line = session.doc.getLine(cursor.row);
-	            var rightChar = line.substring(cursor.column, cursor.column + 1);
-	            if (rightChar == ')') {
-	                var matching = session.$findOpeningBracket(')', {column: cursor.column + 1, row: cursor.row});
-	                if (matching !== null && CstyleBehaviour.isAutoInsertedClosing(cursor, line, text)) {
-	                    CstyleBehaviour.popAutoInsertedClosing();
-	                    return {
-	                        text: '',
-	                        selection: [1, 1]
-	                    };
-	                }
-	            }
-	        }
-	    });
-
-	    this.add("parens", "deletion", function(state, action, editor, session, range) {
-	        var selected = session.doc.getTextRange(range);
-	        if (!range.isMultiLine() && selected == '(') {
-	            initContext(editor);
-	            var line = session.doc.getLine(range.start.row);
-	            var rightChar = line.substring(range.start.column + 1, range.start.column + 2);
-	            if (rightChar == ')') {
-	                range.end.column++;
-	                return range;
-	            }
-	        }
-	    });
-
-	    this.add("brackets", "insertion", function(state, action, editor, session, text) {
-	        if (text == '[') {
-	            initContext(editor);
-	            var selection = editor.getSelectionRange();
-	            var selected = session.doc.getTextRange(selection);
-	            if (selected !== "" && editor.getWrapBehavioursEnabled()) {
-	                return getWrapped(selection, selected, '[', ']');
-	            } else if (CstyleBehaviour.isSaneInsertion(editor, session)) {
-	                CstyleBehaviour.recordAutoInsert(editor, session, "]");
-	                return {
-	                    text: '[]',
-	                    selection: [1, 1]
-	                };
-	            }
-	        } else if (text == ']') {
-	            initContext(editor);
-	            var cursor = editor.getCursorPosition();
-	            var line = session.doc.getLine(cursor.row);
-	            var rightChar = line.substring(cursor.column, cursor.column + 1);
-	            if (rightChar == ']') {
-	                var matching = session.$findOpeningBracket(']', {column: cursor.column + 1, row: cursor.row});
-	                if (matching !== null && CstyleBehaviour.isAutoInsertedClosing(cursor, line, text)) {
-	                    CstyleBehaviour.popAutoInsertedClosing();
-	                    return {
-	                        text: '',
-	                        selection: [1, 1]
-	                    };
-	                }
-	            }
-	        }
-	    });
-
-	    this.add("brackets", "deletion", function(state, action, editor, session, range) {
-	        var selected = session.doc.getTextRange(range);
-	        if (!range.isMultiLine() && selected == '[') {
-	            initContext(editor);
-	            var line = session.doc.getLine(range.start.row);
-	            var rightChar = line.substring(range.start.column + 1, range.start.column + 2);
-	            if (rightChar == ']') {
-	                range.end.column++;
-	                return range;
-	            }
-	        }
-	    });
-
-	    this.add("string_dquotes", "insertion", function(state, action, editor, session, text) {
-	        if (text == '"' || text == "'") {
-	            initContext(editor);
-	            var quote = text;
-	            var selection = editor.getSelectionRange();
-	            var selected = session.doc.getTextRange(selection);
-	            if (selected !== "" && selected !== "'" && selected != '"' && editor.getWrapBehavioursEnabled()) {
-	                return getWrapped(selection, selected, quote, quote);
-	            } else if (!selected) {
-	                var cursor = editor.getCursorPosition();
-	                var line = session.doc.getLine(cursor.row);
-	                var leftChar = line.substring(cursor.column-1, cursor.column);
-	                var rightChar = line.substring(cursor.column, cursor.column + 1);
-	                
-	                var token = session.getTokenAt(cursor.row, cursor.column);
-	                var rightToken = session.getTokenAt(cursor.row, cursor.column + 1);
-	                if (leftChar == "\\" && token && /escape/.test(token.type))
-	                    return null;
-	                
-	                var stringBefore = token && /string|escape/.test(token.type);
-	                var stringAfter = !rightToken || /string|escape/.test(rightToken.type);
-	                
-	                var pair;
-	                if (rightChar == quote) {
-	                    pair = stringBefore !== stringAfter;
-	                } else {
-	                    if (stringBefore && !stringAfter)
-	                        return null; // wrap string with different quote
-	                    if (stringBefore && stringAfter)
-	                        return null; // do not pair quotes inside strings
-	                    var wordRe = session.$mode.tokenRe;
-	                    wordRe.lastIndex = 0;
-	                    var isWordBefore = wordRe.test(leftChar);
-	                    wordRe.lastIndex = 0;
-	                    var isWordAfter = wordRe.test(leftChar);
-	                    if (isWordBefore || isWordAfter)
-	                        return null; // before or after alphanumeric
-	                    if (rightChar && !/[\s;,.})\]\\]/.test(rightChar))
-	                        return null; // there is rightChar and it isn't closing
-	                    pair = true;
-	                }
-	                return {
-	                    text: pair ? quote + quote : "",
-	                    selection: [1,1]
-	                };
-	            }
-	        }
-	    });
-
-	    this.add("string_dquotes", "deletion", function(state, action, editor, session, range) {
-	        var selected = session.doc.getTextRange(range);
-	        if (!range.isMultiLine() && (selected == '"' || selected == "'")) {
-	            initContext(editor);
-	            var line = session.doc.getLine(range.start.row);
-	            var rightChar = line.substring(range.start.column + 1, range.start.column + 2);
-	            if (rightChar == selected) {
-	                range.end.column++;
-	                return range;
-	            }
-	        }
-	    });
-
-	};
-
-	    
-	CstyleBehaviour.isSaneInsertion = function(editor, session) {
-	    var cursor = editor.getCursorPosition();
-	    var iterator = new TokenIterator(session, cursor.row, cursor.column);
-	    if (!this.$matchTokenType(iterator.getCurrentToken() || "text", SAFE_INSERT_IN_TOKENS)) {
-	        var iterator2 = new TokenIterator(session, cursor.row, cursor.column + 1);
-	        if (!this.$matchTokenType(iterator2.getCurrentToken() || "text", SAFE_INSERT_IN_TOKENS))
-	            return false;
-	    }
-	    iterator.stepForward();
-	    return iterator.getCurrentTokenRow() !== cursor.row ||
-	        this.$matchTokenType(iterator.getCurrentToken() || "text", SAFE_INSERT_BEFORE_TOKENS);
-	};
-
-	CstyleBehaviour.$matchTokenType = function(token, types) {
-	    return types.indexOf(token.type || token) > -1;
-	};
-
-	CstyleBehaviour.recordAutoInsert = function(editor, session, bracket) {
-	    var cursor = editor.getCursorPosition();
-	    var line = session.doc.getLine(cursor.row);
-	    if (!this.isAutoInsertedClosing(cursor, line, context.autoInsertedLineEnd[0]))
-	        context.autoInsertedBrackets = 0;
-	    context.autoInsertedRow = cursor.row;
-	    context.autoInsertedLineEnd = bracket + line.substr(cursor.column);
-	    context.autoInsertedBrackets++;
-	};
-
-	CstyleBehaviour.recordMaybeInsert = function(editor, session, bracket) {
-	    var cursor = editor.getCursorPosition();
-	    var line = session.doc.getLine(cursor.row);
-	    if (!this.isMaybeInsertedClosing(cursor, line))
-	        context.maybeInsertedBrackets = 0;
-	    context.maybeInsertedRow = cursor.row;
-	    context.maybeInsertedLineStart = line.substr(0, cursor.column) + bracket;
-	    context.maybeInsertedLineEnd = line.substr(cursor.column);
-	    context.maybeInsertedBrackets++;
-	};
-
-	CstyleBehaviour.isAutoInsertedClosing = function(cursor, line, bracket) {
-	    return context.autoInsertedBrackets > 0 &&
-	        cursor.row === context.autoInsertedRow &&
-	        bracket === context.autoInsertedLineEnd[0] &&
-	        line.substr(cursor.column) === context.autoInsertedLineEnd;
-	};
-
-	CstyleBehaviour.isMaybeInsertedClosing = function(cursor, line) {
-	    return context.maybeInsertedBrackets > 0 &&
-	        cursor.row === context.maybeInsertedRow &&
-	        line.substr(cursor.column) === context.maybeInsertedLineEnd &&
-	        line.substr(0, cursor.column) == context.maybeInsertedLineStart;
-	};
-
-	CstyleBehaviour.popAutoInsertedClosing = function() {
-	    context.autoInsertedLineEnd = context.autoInsertedLineEnd.substr(1);
-	    context.autoInsertedBrackets--;
-	};
-
-	CstyleBehaviour.clearMaybeInsertedClosing = function() {
-	    if (context) {
-	        context.maybeInsertedBrackets = 0;
-	        context.maybeInsertedRow = -1;
-	    }
-	};
-
-
-
-	oop.inherits(CstyleBehaviour, Behaviour);
-
-	exports.CstyleBehaviour = CstyleBehaviour;
-	});
-
 	ace.define("ace/mode/folding/cstyle",["require","exports","module","ace/lib/oop","ace/range","ace/mode/folding/fold_mode"], function(acequire, exports, module) {
 	"use strict";
 
@@ -8954,8 +11436,8 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	(function() {
 	    
-	    this.foldingStartMarker = /(\{|\[)[^\}\]]*$|^\s*(\/\*)/;
-	    this.foldingStopMarker = /^[^\[\{]*(\}|\])|^[\s\*]*(\*\/)/;
+	    this.foldingStartMarker = /([\{\[\(])[^\}\]\)]*$|^\s*(\/\*)/;
+	    this.foldingStopMarker = /^[^\[\{\(]*([\}\]\)])|^[\s\*]*(\*\/)/;
 	    this.singleLineBlockCommentRe= /^\s*(\/\*).*\*\/\s*$/;
 	    this.tripleStarBlockCommentRe = /^\s*(\/\*\*\*).*\*\/\s*$/;
 	    this.startRegionRe = /^\s*(\/\*|\/\/)#?region\b/;
@@ -9116,7 +11598,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    };
 
 	    this.createWorker = function(session) {
-	        var worker = new WorkerClient(["ace"], __webpack_require__(15), "JsonWorker");
+	        var worker = new WorkerClient(["ace"], __webpack_require__(20), "JsonWorker");
 	        worker.attachToDocument(session.getDocument());
 
 	        worker.on("annotate", function(e) {
@@ -9139,14 +11621,14 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 15 */
+/* 20 */
 /***/ function(module, exports) {
 
 	module.exports.id = 'ace/mode/json_worker';
-	module.exports.src = "\"no use strict\";(function(window){function resolveModuleId(id,paths){for(var testPath=id,tail=\"\";testPath;){var alias=paths[testPath];if(\"string\"==typeof alias)return alias+tail;if(alias)return alias.location.replace(/\\/*$/,\"/\")+(tail||alias.main||alias.name);if(alias===!1)return\"\";var i=testPath.lastIndexOf(\"/\");if(-1===i)break;tail=testPath.substr(i)+tail,testPath=testPath.slice(0,i)}return id}if(!(void 0!==window.window&&window.document||window.acequire&&window.define)){window.console||(window.console=function(){var msgs=Array.prototype.slice.call(arguments,0);postMessage({type:\"log\",data:msgs})},window.console.error=window.console.warn=window.console.log=window.console.trace=window.console),window.window=window,window.ace=window,window.onerror=function(message,file,line,col,err){postMessage({type:\"error\",data:{message:message,data:err.data,file:file,line:line,col:col,stack:err.stack}})},window.normalizeModule=function(parentId,moduleName){if(-1!==moduleName.indexOf(\"!\")){var chunks=moduleName.split(\"!\");return window.normalizeModule(parentId,chunks[0])+\"!\"+window.normalizeModule(parentId,chunks[1])}if(\".\"==moduleName.charAt(0)){var base=parentId.split(\"/\").slice(0,-1).join(\"/\");for(moduleName=(base?base+\"/\":\"\")+moduleName;-1!==moduleName.indexOf(\".\")&&previous!=moduleName;){var previous=moduleName;moduleName=moduleName.replace(/^\\.\\//,\"\").replace(/\\/\\.\\//,\"/\").replace(/[^\\/]+\\/\\.\\.\\//,\"\")}}return moduleName},window.acequire=function acequire(parentId,id){if(id||(id=parentId,parentId=null),!id.charAt)throw Error(\"worker.js acequire() accepts only (parentId, id) as arguments\");id=window.normalizeModule(parentId,id);var module=window.acequire.modules[id];if(module)return module.initialized||(module.initialized=!0,module.exports=module.factory().exports),module.exports;if(!window.acequire.tlns)return console.log(\"unable to load \"+id);var path=resolveModuleId(id,window.acequire.tlns);return\".js\"!=path.slice(-3)&&(path+=\".js\"),window.acequire.id=id,window.acequire.modules[id]={},importScripts(path),window.acequire(parentId,id)},window.acequire.modules={},window.acequire.tlns={},window.define=function(id,deps,factory){if(2==arguments.length?(factory=deps,\"string\"!=typeof id&&(deps=id,id=window.acequire.id)):1==arguments.length&&(factory=id,deps=[],id=window.acequire.id),\"function\"!=typeof factory)return window.acequire.modules[id]={exports:factory,initialized:!0},void 0;deps.length||(deps=[\"require\",\"exports\",\"module\"]);var req=function(childId){return window.acequire(id,childId)};window.acequire.modules[id]={exports:{},factory:function(){var module=this,returnExports=factory.apply(this,deps.map(function(dep){switch(dep){case\"require\":return req;case\"exports\":return module.exports;case\"module\":return module;default:return req(dep)}}));return returnExports&&(module.exports=returnExports),module}}},window.define.amd={},acequire.tlns={},window.initBaseUrls=function(topLevelNamespaces){for(var i in topLevelNamespaces)acequire.tlns[i]=topLevelNamespaces[i]},window.initSender=function(){var EventEmitter=window.acequire(\"ace/lib/event_emitter\").EventEmitter,oop=window.acequire(\"ace/lib/oop\"),Sender=function(){};return function(){oop.implement(this,EventEmitter),this.callback=function(data,callbackId){postMessage({type:\"call\",id:callbackId,data:data})},this.emit=function(name,data){postMessage({type:\"event\",name:name,data:data})}}.call(Sender.prototype),new Sender};var main=window.main=null,sender=window.sender=null;window.onmessage=function(e){var msg=e.data;if(msg.event&&sender)sender._signal(msg.event,msg.data);else if(msg.command)if(main[msg.command])main[msg.command].apply(main,msg.args);else{if(!window[msg.command])throw Error(\"Unknown command:\"+msg.command);window[msg.command].apply(window,msg.args)}else if(msg.init){window.initBaseUrls(msg.tlns),acequire(\"ace/lib/es5-shim\"),sender=window.sender=window.initSender();var clazz=acequire(msg.module)[msg.classname];main=window.main=new clazz(sender)}}}})(this),ace.define(\"ace/lib/oop\",[\"require\",\"exports\",\"module\"],function(acequire,exports){\"use strict\";exports.inherits=function(ctor,superCtor){ctor.super_=superCtor,ctor.prototype=Object.create(superCtor.prototype,{constructor:{value:ctor,enumerable:!1,writable:!0,configurable:!0}})},exports.mixin=function(obj,mixin){for(var key in mixin)obj[key]=mixin[key];return obj},exports.implement=function(proto,mixin){exports.mixin(proto,mixin)}}),ace.define(\"ace/range\",[\"require\",\"exports\",\"module\"],function(acequire,exports){\"use strict\";var comparePoints=function(p1,p2){return p1.row-p2.row||p1.column-p2.column},Range=function(startRow,startColumn,endRow,endColumn){this.start={row:startRow,column:startColumn},this.end={row:endRow,column:endColumn}};(function(){this.isEqual=function(range){return this.start.row===range.start.row&&this.end.row===range.end.row&&this.start.column===range.start.column&&this.end.column===range.end.column},this.toString=function(){return\"Range: [\"+this.start.row+\"/\"+this.start.column+\"] -> [\"+this.end.row+\"/\"+this.end.column+\"]\"},this.contains=function(row,column){return 0==this.compare(row,column)},this.compareRange=function(range){var cmp,end=range.end,start=range.start;return cmp=this.compare(end.row,end.column),1==cmp?(cmp=this.compare(start.row,start.column),1==cmp?2:0==cmp?1:0):-1==cmp?-2:(cmp=this.compare(start.row,start.column),-1==cmp?-1:1==cmp?42:0)},this.comparePoint=function(p){return this.compare(p.row,p.column)},this.containsRange=function(range){return 0==this.comparePoint(range.start)&&0==this.comparePoint(range.end)},this.intersects=function(range){var cmp=this.compareRange(range);return-1==cmp||0==cmp||1==cmp},this.isEnd=function(row,column){return this.end.row==row&&this.end.column==column},this.isStart=function(row,column){return this.start.row==row&&this.start.column==column},this.setStart=function(row,column){\"object\"==typeof row?(this.start.column=row.column,this.start.row=row.row):(this.start.row=row,this.start.column=column)},this.setEnd=function(row,column){\"object\"==typeof row?(this.end.column=row.column,this.end.row=row.row):(this.end.row=row,this.end.column=column)},this.inside=function(row,column){return 0==this.compare(row,column)?this.isEnd(row,column)||this.isStart(row,column)?!1:!0:!1},this.insideStart=function(row,column){return 0==this.compare(row,column)?this.isEnd(row,column)?!1:!0:!1},this.insideEnd=function(row,column){return 0==this.compare(row,column)?this.isStart(row,column)?!1:!0:!1},this.compare=function(row,column){return this.isMultiLine()||row!==this.start.row?this.start.row>row?-1:row>this.end.row?1:this.start.row===row?column>=this.start.column?0:-1:this.end.row===row?this.end.column>=column?0:1:0:this.start.column>column?-1:column>this.end.column?1:0},this.compareStart=function(row,column){return this.start.row==row&&this.start.column==column?-1:this.compare(row,column)},this.compareEnd=function(row,column){return this.end.row==row&&this.end.column==column?1:this.compare(row,column)},this.compareInside=function(row,column){return this.end.row==row&&this.end.column==column?1:this.start.row==row&&this.start.column==column?-1:this.compare(row,column)},this.clipRows=function(firstRow,lastRow){if(this.end.row>lastRow)var end={row:lastRow+1,column:0};else if(firstRow>this.end.row)var end={row:firstRow,column:0};if(this.start.row>lastRow)var start={row:lastRow+1,column:0};else if(firstRow>this.start.row)var start={row:firstRow,column:0};return Range.fromPoints(start||this.start,end||this.end)},this.extend=function(row,column){var cmp=this.compare(row,column);if(0==cmp)return this;if(-1==cmp)var start={row:row,column:column};else var end={row:row,column:column};return Range.fromPoints(start||this.start,end||this.end)},this.isEmpty=function(){return this.start.row===this.end.row&&this.start.column===this.end.column},this.isMultiLine=function(){return this.start.row!==this.end.row},this.clone=function(){return Range.fromPoints(this.start,this.end)},this.collapseRows=function(){return 0==this.end.column?new Range(this.start.row,0,Math.max(this.start.row,this.end.row-1),0):new Range(this.start.row,0,this.end.row,0)},this.toScreenRange=function(session){var screenPosStart=session.documentToScreenPosition(this.start),screenPosEnd=session.documentToScreenPosition(this.end);return new Range(screenPosStart.row,screenPosStart.column,screenPosEnd.row,screenPosEnd.column)},this.moveBy=function(row,column){this.start.row+=row,this.start.column+=column,this.end.row+=row,this.end.column+=column}}).call(Range.prototype),Range.fromPoints=function(start,end){return new Range(start.row,start.column,end.row,end.column)},Range.comparePoints=comparePoints,Range.comparePoints=function(p1,p2){return p1.row-p2.row||p1.column-p2.column},exports.Range=Range}),ace.define(\"ace/apply_delta\",[\"require\",\"exports\",\"module\"],function(acequire,exports){\"use strict\";exports.applyDelta=function(docLines,delta){var row=delta.start.row,startColumn=delta.start.column,line=docLines[row]||\"\";switch(delta.action){case\"insert\":var lines=delta.lines;if(1===lines.length)docLines[row]=line.substring(0,startColumn)+delta.lines[0]+line.substring(startColumn);else{var args=[row,1].concat(delta.lines);docLines.splice.apply(docLines,args),docLines[row]=line.substring(0,startColumn)+docLines[row],docLines[row+delta.lines.length-1]+=line.substring(startColumn)}break;case\"remove\":var endColumn=delta.end.column,endRow=delta.end.row;row===endRow?docLines[row]=line.substring(0,startColumn)+line.substring(endColumn):docLines.splice(row,endRow-row+1,line.substring(0,startColumn)+docLines[endRow].substring(endColumn))}}}),ace.define(\"ace/lib/event_emitter\",[\"require\",\"exports\",\"module\"],function(acequire,exports){\"use strict\";var EventEmitter={},stopPropagation=function(){this.propagationStopped=!0},preventDefault=function(){this.defaultPrevented=!0};EventEmitter._emit=EventEmitter._dispatchEvent=function(eventName,e){this._eventRegistry||(this._eventRegistry={}),this._defaultHandlers||(this._defaultHandlers={});var listeners=this._eventRegistry[eventName]||[],defaultHandler=this._defaultHandlers[eventName];if(listeners.length||defaultHandler){\"object\"==typeof e&&e||(e={}),e.type||(e.type=eventName),e.stopPropagation||(e.stopPropagation=stopPropagation),e.preventDefault||(e.preventDefault=preventDefault),listeners=listeners.slice();for(var i=0;listeners.length>i&&(listeners[i](e,this),!e.propagationStopped);i++);return defaultHandler&&!e.defaultPrevented?defaultHandler(e,this):void 0}},EventEmitter._signal=function(eventName,e){var listeners=(this._eventRegistry||{})[eventName];if(listeners){listeners=listeners.slice();for(var i=0;listeners.length>i;i++)listeners[i](e,this)}},EventEmitter.once=function(eventName,callback){var _self=this;callback&&this.addEventListener(eventName,function newCallback(){_self.removeEventListener(eventName,newCallback),callback.apply(null,arguments)})},EventEmitter.setDefaultHandler=function(eventName,callback){var handlers=this._defaultHandlers;if(handlers||(handlers=this._defaultHandlers={_disabled_:{}}),handlers[eventName]){var old=handlers[eventName],disabled=handlers._disabled_[eventName];disabled||(handlers._disabled_[eventName]=disabled=[]),disabled.push(old);var i=disabled.indexOf(callback);-1!=i&&disabled.splice(i,1)}handlers[eventName]=callback},EventEmitter.removeDefaultHandler=function(eventName,callback){var handlers=this._defaultHandlers;if(handlers){var disabled=handlers._disabled_[eventName];if(handlers[eventName]==callback)handlers[eventName],disabled&&this.setDefaultHandler(eventName,disabled.pop());else if(disabled){var i=disabled.indexOf(callback);-1!=i&&disabled.splice(i,1)}}},EventEmitter.on=EventEmitter.addEventListener=function(eventName,callback,capturing){this._eventRegistry=this._eventRegistry||{};var listeners=this._eventRegistry[eventName];return listeners||(listeners=this._eventRegistry[eventName]=[]),-1==listeners.indexOf(callback)&&listeners[capturing?\"unshift\":\"push\"](callback),callback},EventEmitter.off=EventEmitter.removeListener=EventEmitter.removeEventListener=function(eventName,callback){this._eventRegistry=this._eventRegistry||{};var listeners=this._eventRegistry[eventName];if(listeners){var index=listeners.indexOf(callback);-1!==index&&listeners.splice(index,1)}},EventEmitter.removeAllListeners=function(eventName){this._eventRegistry&&(this._eventRegistry[eventName]=[])},exports.EventEmitter=EventEmitter}),ace.define(\"ace/anchor\",[\"require\",\"exports\",\"module\",\"ace/lib/oop\",\"ace/lib/event_emitter\"],function(acequire,exports){\"use strict\";var oop=acequire(\"./lib/oop\"),EventEmitter=acequire(\"./lib/event_emitter\").EventEmitter,Anchor=exports.Anchor=function(doc,row,column){this.$onChange=this.onChange.bind(this),this.attach(doc),column===void 0?this.setPosition(row.row,row.column):this.setPosition(row,column)};(function(){function $pointsInOrder(point1,point2,equalPointsInOrder){var bColIsAfter=equalPointsInOrder?point1.column<=point2.column:point1.column<point2.column;return point1.row<point2.row||point1.row==point2.row&&bColIsAfter}function $getTransformedPoint(delta,point,moveIfEqual){var deltaIsInsert=\"insert\"==delta.action,deltaRowShift=(deltaIsInsert?1:-1)*(delta.end.row-delta.start.row),deltaColShift=(deltaIsInsert?1:-1)*(delta.end.column-delta.start.column),deltaStart=delta.start,deltaEnd=deltaIsInsert?deltaStart:delta.end;return $pointsInOrder(point,deltaStart,moveIfEqual)?{row:point.row,column:point.column}:$pointsInOrder(deltaEnd,point,!moveIfEqual)?{row:point.row+deltaRowShift,column:point.column+(point.row==deltaEnd.row?deltaColShift:0)}:{row:deltaStart.row,column:deltaStart.column}}oop.implement(this,EventEmitter),this.getPosition=function(){return this.$clipPositionToDocument(this.row,this.column)},this.getDocument=function(){return this.document},this.$insertRight=!1,this.onChange=function(delta){if(!(delta.start.row==delta.end.row&&delta.start.row!=this.row||delta.start.row>this.row)){var point=$getTransformedPoint(delta,{row:this.row,column:this.column},this.$insertRight);this.setPosition(point.row,point.column,!0)}},this.setPosition=function(row,column,noClip){var pos;if(pos=noClip?{row:row,column:column}:this.$clipPositionToDocument(row,column),this.row!=pos.row||this.column!=pos.column){var old={row:this.row,column:this.column};this.row=pos.row,this.column=pos.column,this._signal(\"change\",{old:old,value:pos})}},this.detach=function(){this.document.removeEventListener(\"change\",this.$onChange)},this.attach=function(doc){this.document=doc||this.document,this.document.on(\"change\",this.$onChange)},this.$clipPositionToDocument=function(row,column){var pos={};return row>=this.document.getLength()?(pos.row=Math.max(0,this.document.getLength()-1),pos.column=this.document.getLine(pos.row).length):0>row?(pos.row=0,pos.column=0):(pos.row=row,pos.column=Math.min(this.document.getLine(pos.row).length,Math.max(0,column))),0>column&&(pos.column=0),pos}}).call(Anchor.prototype)}),ace.define(\"ace/document\",[\"require\",\"exports\",\"module\",\"ace/lib/oop\",\"ace/apply_delta\",\"ace/lib/event_emitter\",\"ace/range\",\"ace/anchor\"],function(acequire,exports){\"use strict\";var oop=acequire(\"./lib/oop\"),applyDelta=acequire(\"./apply_delta\").applyDelta,EventEmitter=acequire(\"./lib/event_emitter\").EventEmitter,Range=acequire(\"./range\").Range,Anchor=acequire(\"./anchor\").Anchor,Document=function(textOrLines){this.$lines=[\"\"],0===textOrLines.length?this.$lines=[\"\"]:Array.isArray(textOrLines)?this.insertMergedLines({row:0,column:0},textOrLines):this.insert({row:0,column:0},textOrLines)};(function(){oop.implement(this,EventEmitter),this.setValue=function(text){var len=this.getLength()-1;this.remove(new Range(0,0,len,this.getLine(len).length)),this.insert({row:0,column:0},text)},this.getValue=function(){return this.getAllLines().join(this.getNewLineCharacter())},this.createAnchor=function(row,column){return new Anchor(this,row,column)},this.$split=0===\"aaa\".split(/a/).length?function(text){return text.replace(/\\r\\n|\\r/g,\"\\n\").split(\"\\n\")}:function(text){return text.split(/\\r\\n|\\r|\\n/)},this.$detectNewLine=function(text){var match=text.match(/^.*?(\\r\\n|\\r|\\n)/m);this.$autoNewLine=match?match[1]:\"\\n\",this._signal(\"changeNewLineMode\")},this.getNewLineCharacter=function(){switch(this.$newLineMode){case\"windows\":return\"\\r\\n\";case\"unix\":return\"\\n\";default:return this.$autoNewLine||\"\\n\"}},this.$autoNewLine=\"\",this.$newLineMode=\"auto\",this.setNewLineMode=function(newLineMode){this.$newLineMode!==newLineMode&&(this.$newLineMode=newLineMode,this._signal(\"changeNewLineMode\"))},this.getNewLineMode=function(){return this.$newLineMode},this.isNewLine=function(text){return\"\\r\\n\"==text||\"\\r\"==text||\"\\n\"==text},this.getLine=function(row){return this.$lines[row]||\"\"},this.getLines=function(firstRow,lastRow){return this.$lines.slice(firstRow,lastRow+1)},this.getAllLines=function(){return this.getLines(0,this.getLength())},this.getLength=function(){return this.$lines.length},this.getTextRange=function(range){return this.getLinesForRange(range).join(this.getNewLineCharacter())},this.getLinesForRange=function(range){var lines;if(range.start.row===range.end.row)lines=[this.getLine(range.start.row).substring(range.start.column,range.end.column)];else{lines=this.getLines(range.start.row,range.end.row),lines[0]=(lines[0]||\"\").substring(range.start.column);var l=lines.length-1;range.end.row-range.start.row==l&&(lines[l]=lines[l].substring(0,range.end.column))}return lines},this.insertLines=function(row,lines){return console.warn(\"Use of document.insertLines is deprecated. Use the insertFullLines method instead.\"),this.insertFullLines(row,lines)},this.removeLines=function(firstRow,lastRow){return console.warn(\"Use of document.removeLines is deprecated. Use the removeFullLines method instead.\"),this.removeFullLines(firstRow,lastRow)},this.insertNewLine=function(position){return console.warn(\"Use of document.insertNewLine is deprecated. Use insertMergedLines(position, ['', '']) instead.\"),this.insertMergedLines(position,[\"\",\"\"])},this.insert=function(position,text){return 1>=this.getLength()&&this.$detectNewLine(text),this.insertMergedLines(position,this.$split(text))},this.insertInLine=function(position,text){var start=this.clippedPos(position.row,position.column),end=this.pos(position.row,position.column+text.length);return this.applyDelta({start:start,end:end,action:\"insert\",lines:[text]},!0),this.clonePos(end)},this.clippedPos=function(row,column){var length=this.getLength();void 0===row?row=length:0>row?row=0:row>=length&&(row=length-1,column=void 0);var line=this.getLine(row);return void 0==column&&(column=line.length),column=Math.min(Math.max(column,0),line.length),{row:row,column:column}},this.clonePos=function(pos){return{row:pos.row,column:pos.column}},this.pos=function(row,column){return{row:row,column:column}},this.$clipPosition=function(position){var length=this.getLength();return position.row>=length?(position.row=Math.max(0,length-1),position.column=this.getLine(length-1).length):(position.row=Math.max(0,position.row),position.column=Math.min(Math.max(position.column,0),this.getLine(position.row).length)),position},this.insertFullLines=function(row,lines){row=Math.min(Math.max(row,0),this.getLength());var column=0;this.getLength()>row?(lines=lines.concat([\"\"]),column=0):(lines=[\"\"].concat(lines),row--,column=this.$lines[row].length),this.insertMergedLines({row:row,column:column},lines)},this.insertMergedLines=function(position,lines){var start=this.clippedPos(position.row,position.column),end={row:start.row+lines.length-1,column:(1==lines.length?start.column:0)+lines[lines.length-1].length};return this.applyDelta({start:start,end:end,action:\"insert\",lines:lines}),this.clonePos(end)},this.remove=function(range){var start=this.clippedPos(range.start.row,range.start.column),end=this.clippedPos(range.end.row,range.end.column);return this.applyDelta({start:start,end:end,action:\"remove\",lines:this.getLinesForRange({start:start,end:end})}),this.clonePos(start)},this.removeInLine=function(row,startColumn,endColumn){var start=this.clippedPos(row,startColumn),end=this.clippedPos(row,endColumn);return this.applyDelta({start:start,end:end,action:\"remove\",lines:this.getLinesForRange({start:start,end:end})},!0),this.clonePos(start)},this.removeFullLines=function(firstRow,lastRow){firstRow=Math.min(Math.max(0,firstRow),this.getLength()-1),lastRow=Math.min(Math.max(0,lastRow),this.getLength()-1);var deleteFirstNewLine=lastRow==this.getLength()-1&&firstRow>0,deleteLastNewLine=this.getLength()-1>lastRow,startRow=deleteFirstNewLine?firstRow-1:firstRow,startCol=deleteFirstNewLine?this.getLine(startRow).length:0,endRow=deleteLastNewLine?lastRow+1:lastRow,endCol=deleteLastNewLine?0:this.getLine(endRow).length,range=new Range(startRow,startCol,endRow,endCol),deletedLines=this.$lines.slice(firstRow,lastRow+1);return this.applyDelta({start:range.start,end:range.end,action:\"remove\",lines:this.getLinesForRange(range)}),deletedLines},this.removeNewLine=function(row){this.getLength()-1>row&&row>=0&&this.applyDelta({start:this.pos(row,this.getLine(row).length),end:this.pos(row+1,0),action:\"remove\",lines:[\"\",\"\"]})},this.replace=function(range,text){if(range instanceof Range||(range=Range.fromPoints(range.start,range.end)),0===text.length&&range.isEmpty())return range.start;if(text==this.getTextRange(range))return range.end;this.remove(range);var end;return end=text?this.insert(range.start,text):range.start},this.applyDeltas=function(deltas){for(var i=0;deltas.length>i;i++)this.applyDelta(deltas[i])},this.revertDeltas=function(deltas){for(var i=deltas.length-1;i>=0;i--)this.revertDelta(deltas[i])},this.applyDelta=function(delta,doNotValidate){var isInsert=\"insert\"==delta.action;(isInsert?1>=delta.lines.length&&!delta.lines[0]:!Range.comparePoints(delta.start,delta.end))||(isInsert&&delta.lines.length>2e4&&this.$splitAndapplyLargeDelta(delta,2e4),applyDelta(this.$lines,delta,doNotValidate),this._signal(\"change\",delta))},this.$splitAndapplyLargeDelta=function(delta,MAX){for(var lines=delta.lines,l=lines.length,row=delta.start.row,column=delta.start.column,from=0,to=0;;){from=to,to+=MAX-1;var chunk=lines.slice(from,to);if(to>l){delta.lines=chunk,delta.start.row=row+from,delta.start.column=column;break}chunk.push(\"\"),this.applyDelta({start:this.pos(row+from,column),end:this.pos(row+to,column=0),action:delta.action,lines:chunk},!0)}},this.revertDelta=function(delta){this.applyDelta({start:this.clonePos(delta.start),end:this.clonePos(delta.end),action:\"insert\"==delta.action?\"remove\":\"insert\",lines:delta.lines.slice()})},this.indexToPosition=function(index,startRow){for(var lines=this.$lines||this.getAllLines(),newlineLength=this.getNewLineCharacter().length,i=startRow||0,l=lines.length;l>i;i++)if(index-=lines[i].length+newlineLength,0>index)return{row:i,column:index+lines[i].length+newlineLength};return{row:l-1,column:lines[l-1].length}},this.positionToIndex=function(pos,startRow){for(var lines=this.$lines||this.getAllLines(),newlineLength=this.getNewLineCharacter().length,index=0,row=Math.min(pos.row,lines.length),i=startRow||0;row>i;++i)index+=lines[i].length+newlineLength;return index+pos.column}}).call(Document.prototype),exports.Document=Document}),ace.define(\"ace/lib/lang\",[\"require\",\"exports\",\"module\"],function(acequire,exports){\"use strict\";exports.last=function(a){return a[a.length-1]},exports.stringReverse=function(string){return string.split(\"\").reverse().join(\"\")},exports.stringRepeat=function(string,count){for(var result=\"\";count>0;)1&count&&(result+=string),(count>>=1)&&(string+=string);return result};var trimBeginRegexp=/^\\s\\s*/,trimEndRegexp=/\\s\\s*$/;exports.stringTrimLeft=function(string){return string.replace(trimBeginRegexp,\"\")},exports.stringTrimRight=function(string){return string.replace(trimEndRegexp,\"\")},exports.copyObject=function(obj){var copy={};for(var key in obj)copy[key]=obj[key];return copy},exports.copyArray=function(array){for(var copy=[],i=0,l=array.length;l>i;i++)copy[i]=array[i]&&\"object\"==typeof array[i]?this.copyObject(array[i]):array[i];return copy},exports.deepCopy=function deepCopy(obj){if(\"object\"!=typeof obj||!obj)return obj;var copy;if(Array.isArray(obj)){copy=[];for(var key=0;obj.length>key;key++)copy[key]=deepCopy(obj[key]);return copy}var cons=obj.constructor;if(cons===RegExp)return obj;copy=cons();for(var key in obj)copy[key]=deepCopy(obj[key]);return copy},exports.arrayToMap=function(arr){for(var map={},i=0;arr.length>i;i++)map[arr[i]]=1;return map},exports.createMap=function(props){var map=Object.create(null);for(var i in props)map[i]=props[i];return map},exports.arrayRemove=function(array,value){for(var i=0;array.length>=i;i++)value===array[i]&&array.splice(i,1)},exports.escapeRegExp=function(str){return str.replace(/([.*+?^${}()|[\\]\\/\\\\])/g,\"\\\\$1\")},exports.escapeHTML=function(str){return str.replace(/&/g,\"&#38;\").replace(/\"/g,\"&#34;\").replace(/'/g,\"&#39;\").replace(/</g,\"&#60;\")},exports.getMatchOffsets=function(string,regExp){var matches=[];return string.replace(regExp,function(str){matches.push({offset:arguments[arguments.length-2],length:str.length})}),matches},exports.deferredCall=function(fcn){var timer=null,callback=function(){timer=null,fcn()},deferred=function(timeout){return deferred.cancel(),timer=setTimeout(callback,timeout||0),deferred};return deferred.schedule=deferred,deferred.call=function(){return this.cancel(),fcn(),deferred},deferred.cancel=function(){return clearTimeout(timer),timer=null,deferred},deferred.isPending=function(){return timer},deferred},exports.delayedCall=function(fcn,defaultTimeout){var timer=null,callback=function(){timer=null,fcn()},_self=function(timeout){null==timer&&(timer=setTimeout(callback,timeout||defaultTimeout))};return _self.delay=function(timeout){timer&&clearTimeout(timer),timer=setTimeout(callback,timeout||defaultTimeout)},_self.schedule=_self,_self.call=function(){this.cancel(),fcn()},_self.cancel=function(){timer&&clearTimeout(timer),timer=null},_self.isPending=function(){return timer},_self}}),ace.define(\"ace/worker/mirror\",[\"require\",\"exports\",\"module\",\"ace/range\",\"ace/document\",\"ace/lib/lang\"],function(acequire,exports){\"use strict\";acequire(\"../range\").Range;var Document=acequire(\"../document\").Document,lang=acequire(\"../lib/lang\"),Mirror=exports.Mirror=function(sender){this.sender=sender;var doc=this.doc=new Document(\"\"),deferredUpdate=this.deferredUpdate=lang.delayedCall(this.onUpdate.bind(this)),_self=this;sender.on(\"change\",function(e){var data=e.data;if(data[0].start)doc.applyDeltas(data);else for(var i=0;data.length>i;i+=2){if(Array.isArray(data[i+1]))var d={action:\"insert\",start:data[i],lines:data[i+1]};else var d={action:\"remove\",start:data[i],end:data[i+1]};doc.applyDelta(d,!0)}return _self.$timeout?deferredUpdate.schedule(_self.$timeout):(_self.onUpdate(),void 0)})};(function(){this.$timeout=500,this.setTimeout=function(timeout){this.$timeout=timeout},this.setValue=function(value){this.doc.setValue(value),this.deferredUpdate.schedule(this.$timeout)},this.getValue=function(callbackId){this.sender.callback(this.doc.getValue(),callbackId)},this.onUpdate=function(){},this.isPending=function(){return this.deferredUpdate.isPending()}}).call(Mirror.prototype)}),ace.define(\"ace/mode/json/json_parse\",[\"require\",\"exports\",\"module\"],function(){\"use strict\";var at,ch,text,value,escapee={'\"':'\"',\"\\\\\":\"\\\\\",\"/\":\"/\",b:\"\\b\",f:\"\\f\",n:\"\\n\",r:\"\\r\",t:\"\t\"},error=function(m){throw{name:\"SyntaxError\",message:m,at:at,text:text}},next=function(c){return c&&c!==ch&&error(\"Expected '\"+c+\"' instead of '\"+ch+\"'\"),ch=text.charAt(at),at+=1,ch},number=function(){var number,string=\"\";for(\"-\"===ch&&(string=\"-\",next(\"-\"));ch>=\"0\"&&\"9\">=ch;)string+=ch,next();if(\".\"===ch)for(string+=\".\";next()&&ch>=\"0\"&&\"9\">=ch;)string+=ch;if(\"e\"===ch||\"E\"===ch)for(string+=ch,next(),(\"-\"===ch||\"+\"===ch)&&(string+=ch,next());ch>=\"0\"&&\"9\">=ch;)string+=ch,next();return number=+string,isNaN(number)?(error(\"Bad number\"),void 0):number},string=function(){var hex,i,uffff,string=\"\";if('\"'===ch)for(;next();){if('\"'===ch)return next(),string;if(\"\\\\\"===ch)if(next(),\"u\"===ch){for(uffff=0,i=0;4>i&&(hex=parseInt(next(),16),isFinite(hex));i+=1)uffff=16*uffff+hex;string+=String.fromCharCode(uffff)}else{if(\"string\"!=typeof escapee[ch])break;string+=escapee[ch]}else string+=ch}error(\"Bad string\")},white=function(){for(;ch&&\" \">=ch;)next()},word=function(){switch(ch){case\"t\":return next(\"t\"),next(\"r\"),next(\"u\"),next(\"e\"),!0;case\"f\":return next(\"f\"),next(\"a\"),next(\"l\"),next(\"s\"),next(\"e\"),!1;case\"n\":return next(\"n\"),next(\"u\"),next(\"l\"),next(\"l\"),null}error(\"Unexpected '\"+ch+\"'\")},array=function(){var array=[];if(\"[\"===ch){if(next(\"[\"),white(),\"]\"===ch)return next(\"]\"),array;for(;ch;){if(array.push(value()),white(),\"]\"===ch)return next(\"]\"),array;next(\",\"),white()}}error(\"Bad array\")},object=function(){var key,object={};if(\"{\"===ch){if(next(\"{\"),white(),\"}\"===ch)return next(\"}\"),object;for(;ch;){if(key=string(),white(),next(\":\"),Object.hasOwnProperty.call(object,key)&&error('Duplicate key \"'+key+'\"'),object[key]=value(),white(),\"}\"===ch)return next(\"}\"),object;next(\",\"),white()}}error(\"Bad object\")};return value=function(){switch(white(),ch){case\"{\":return object();case\"[\":return array();case'\"':return string();case\"-\":return number();default:return ch>=\"0\"&&\"9\">=ch?number():word()}},function(source,reviver){var result;return text=source,at=0,ch=\" \",result=value(),white(),ch&&error(\"Syntax error\"),\"function\"==typeof reviver?function walk(holder,key){var k,v,value=holder[key];if(value&&\"object\"==typeof value)for(k in value)Object.hasOwnProperty.call(value,k)&&(v=walk(value,k),void 0!==v?value[k]=v:delete value[k]);return reviver.call(holder,key,value)}({\"\":result},\"\"):result}}),ace.define(\"ace/mode/json_worker\",[\"require\",\"exports\",\"module\",\"ace/lib/oop\",\"ace/worker/mirror\",\"ace/mode/json/json_parse\"],function(acequire,exports){\"use strict\";var oop=acequire(\"../lib/oop\"),Mirror=acequire(\"../worker/mirror\").Mirror,parse=acequire(\"./json/json_parse\"),JsonWorker=exports.JsonWorker=function(sender){Mirror.call(this,sender),this.setTimeout(200)};oop.inherits(JsonWorker,Mirror),function(){this.onUpdate=function(){var value=this.doc.getValue(),errors=[];try{value&&parse(value)}catch(e){var pos=this.doc.indexToPosition(e.at-1);errors.push({row:pos.row,column:pos.column,text:e.message,type:\"error\"})}this.sender.emit(\"annotate\",errors)}}.call(JsonWorker.prototype)}),ace.define(\"ace/lib/es5-shim\",[\"require\",\"exports\",\"module\"],function(){function Empty(){}function doesDefinePropertyWork(object){try{return Object.defineProperty(object,\"sentinel\",{}),\"sentinel\"in object}catch(exception){}}function toInteger(n){return n=+n,n!==n?n=0:0!==n&&n!==1/0&&n!==-(1/0)&&(n=(n>0||-1)*Math.floor(Math.abs(n))),n}Function.prototype.bind||(Function.prototype.bind=function(that){var target=this;if(\"function\"!=typeof target)throw new TypeError(\"Function.prototype.bind called on incompatible \"+target);var args=slice.call(arguments,1),bound=function(){if(this instanceof bound){var result=target.apply(this,args.concat(slice.call(arguments)));return Object(result)===result?result:this}return target.apply(that,args.concat(slice.call(arguments)))};return target.prototype&&(Empty.prototype=target.prototype,bound.prototype=new Empty,Empty.prototype=null),bound});var defineGetter,defineSetter,lookupGetter,lookupSetter,supportsAccessors,call=Function.prototype.call,prototypeOfArray=Array.prototype,prototypeOfObject=Object.prototype,slice=prototypeOfArray.slice,_toString=call.bind(prototypeOfObject.toString),owns=call.bind(prototypeOfObject.hasOwnProperty);if((supportsAccessors=owns(prototypeOfObject,\"__defineGetter__\"))&&(defineGetter=call.bind(prototypeOfObject.__defineGetter__),defineSetter=call.bind(prototypeOfObject.__defineSetter__),lookupGetter=call.bind(prototypeOfObject.__lookupGetter__),lookupSetter=call.bind(prototypeOfObject.__lookupSetter__)),2!=[1,2].splice(0).length)if(function(){function makeArray(l){var a=Array(l+2);return a[0]=a[1]=0,a}var lengthBefore,array=[];return array.splice.apply(array,makeArray(20)),array.splice.apply(array,makeArray(26)),lengthBefore=array.length,array.splice(5,0,\"XXX\"),lengthBefore+1==array.length,lengthBefore+1==array.length?!0:void 0\n}()){var array_splice=Array.prototype.splice;Array.prototype.splice=function(start,deleteCount){return arguments.length?array_splice.apply(this,[void 0===start?0:start,void 0===deleteCount?this.length-start:deleteCount].concat(slice.call(arguments,2))):[]}}else Array.prototype.splice=function(pos,removeCount){var length=this.length;pos>0?pos>length&&(pos=length):void 0==pos?pos=0:0>pos&&(pos=Math.max(length+pos,0)),length>pos+removeCount||(removeCount=length-pos);var removed=this.slice(pos,pos+removeCount),insert=slice.call(arguments,2),add=insert.length;if(pos===length)add&&this.push.apply(this,insert);else{var remove=Math.min(removeCount,length-pos),tailOldPos=pos+remove,tailNewPos=tailOldPos+add-remove,tailCount=length-tailOldPos,lengthAfterRemove=length-remove;if(tailOldPos>tailNewPos)for(var i=0;tailCount>i;++i)this[tailNewPos+i]=this[tailOldPos+i];else if(tailNewPos>tailOldPos)for(i=tailCount;i--;)this[tailNewPos+i]=this[tailOldPos+i];if(add&&pos===lengthAfterRemove)this.length=lengthAfterRemove,this.push.apply(this,insert);else for(this.length=lengthAfterRemove+add,i=0;add>i;++i)this[pos+i]=insert[i]}return removed};Array.isArray||(Array.isArray=function(obj){return\"[object Array]\"==_toString(obj)});var boxedString=Object(\"a\"),splitString=\"a\"!=boxedString[0]||!(0 in boxedString);if(Array.prototype.forEach||(Array.prototype.forEach=function(fun){var object=toObject(this),self=splitString&&\"[object String]\"==_toString(this)?this.split(\"\"):object,thisp=arguments[1],i=-1,length=self.length>>>0;if(\"[object Function]\"!=_toString(fun))throw new TypeError;for(;length>++i;)i in self&&fun.call(thisp,self[i],i,object)}),Array.prototype.map||(Array.prototype.map=function(fun){var object=toObject(this),self=splitString&&\"[object String]\"==_toString(this)?this.split(\"\"):object,length=self.length>>>0,result=Array(length),thisp=arguments[1];if(\"[object Function]\"!=_toString(fun))throw new TypeError(fun+\" is not a function\");for(var i=0;length>i;i++)i in self&&(result[i]=fun.call(thisp,self[i],i,object));return result}),Array.prototype.filter||(Array.prototype.filter=function(fun){var value,object=toObject(this),self=splitString&&\"[object String]\"==_toString(this)?this.split(\"\"):object,length=self.length>>>0,result=[],thisp=arguments[1];if(\"[object Function]\"!=_toString(fun))throw new TypeError(fun+\" is not a function\");for(var i=0;length>i;i++)i in self&&(value=self[i],fun.call(thisp,value,i,object)&&result.push(value));return result}),Array.prototype.every||(Array.prototype.every=function(fun){var object=toObject(this),self=splitString&&\"[object String]\"==_toString(this)?this.split(\"\"):object,length=self.length>>>0,thisp=arguments[1];if(\"[object Function]\"!=_toString(fun))throw new TypeError(fun+\" is not a function\");for(var i=0;length>i;i++)if(i in self&&!fun.call(thisp,self[i],i,object))return!1;return!0}),Array.prototype.some||(Array.prototype.some=function(fun){var object=toObject(this),self=splitString&&\"[object String]\"==_toString(this)?this.split(\"\"):object,length=self.length>>>0,thisp=arguments[1];if(\"[object Function]\"!=_toString(fun))throw new TypeError(fun+\" is not a function\");for(var i=0;length>i;i++)if(i in self&&fun.call(thisp,self[i],i,object))return!0;return!1}),Array.prototype.reduce||(Array.prototype.reduce=function(fun){var object=toObject(this),self=splitString&&\"[object String]\"==_toString(this)?this.split(\"\"):object,length=self.length>>>0;if(\"[object Function]\"!=_toString(fun))throw new TypeError(fun+\" is not a function\");if(!length&&1==arguments.length)throw new TypeError(\"reduce of empty array with no initial value\");var result,i=0;if(arguments.length>=2)result=arguments[1];else for(;;){if(i in self){result=self[i++];break}if(++i>=length)throw new TypeError(\"reduce of empty array with no initial value\")}for(;length>i;i++)i in self&&(result=fun.call(void 0,result,self[i],i,object));return result}),Array.prototype.reduceRight||(Array.prototype.reduceRight=function(fun){var object=toObject(this),self=splitString&&\"[object String]\"==_toString(this)?this.split(\"\"):object,length=self.length>>>0;if(\"[object Function]\"!=_toString(fun))throw new TypeError(fun+\" is not a function\");if(!length&&1==arguments.length)throw new TypeError(\"reduceRight of empty array with no initial value\");var result,i=length-1;if(arguments.length>=2)result=arguments[1];else for(;;){if(i in self){result=self[i--];break}if(0>--i)throw new TypeError(\"reduceRight of empty array with no initial value\")}do i in this&&(result=fun.call(void 0,result,self[i],i,object));while(i--);return result}),Array.prototype.indexOf&&-1==[0,1].indexOf(1,2)||(Array.prototype.indexOf=function(sought){var self=splitString&&\"[object String]\"==_toString(this)?this.split(\"\"):toObject(this),length=self.length>>>0;if(!length)return-1;var i=0;for(arguments.length>1&&(i=toInteger(arguments[1])),i=i>=0?i:Math.max(0,length+i);length>i;i++)if(i in self&&self[i]===sought)return i;return-1}),Array.prototype.lastIndexOf&&-1==[0,1].lastIndexOf(0,-3)||(Array.prototype.lastIndexOf=function(sought){var self=splitString&&\"[object String]\"==_toString(this)?this.split(\"\"):toObject(this),length=self.length>>>0;if(!length)return-1;var i=length-1;for(arguments.length>1&&(i=Math.min(i,toInteger(arguments[1]))),i=i>=0?i:length-Math.abs(i);i>=0;i--)if(i in self&&sought===self[i])return i;return-1}),Object.getPrototypeOf||(Object.getPrototypeOf=function(object){return object.__proto__||(object.constructor?object.constructor.prototype:prototypeOfObject)}),!Object.getOwnPropertyDescriptor){var ERR_NON_OBJECT=\"Object.getOwnPropertyDescriptor called on a non-object: \";Object.getOwnPropertyDescriptor=function(object,property){if(\"object\"!=typeof object&&\"function\"!=typeof object||null===object)throw new TypeError(ERR_NON_OBJECT+object);if(owns(object,property)){var descriptor,getter,setter;if(descriptor={enumerable:!0,configurable:!0},supportsAccessors){var prototype=object.__proto__;object.__proto__=prototypeOfObject;var getter=lookupGetter(object,property),setter=lookupSetter(object,property);if(object.__proto__=prototype,getter||setter)return getter&&(descriptor.get=getter),setter&&(descriptor.set=setter),descriptor}return descriptor.value=object[property],descriptor}}}if(Object.getOwnPropertyNames||(Object.getOwnPropertyNames=function(object){return Object.keys(object)}),!Object.create){var createEmpty;createEmpty=null===Object.prototype.__proto__?function(){return{__proto__:null}}:function(){var empty={};for(var i in empty)empty[i]=null;return empty.constructor=empty.hasOwnProperty=empty.propertyIsEnumerable=empty.isPrototypeOf=empty.toLocaleString=empty.toString=empty.valueOf=empty.__proto__=null,empty},Object.create=function(prototype,properties){var object;if(null===prototype)object=createEmpty();else{if(\"object\"!=typeof prototype)throw new TypeError(\"typeof prototype[\"+typeof prototype+\"] != 'object'\");var Type=function(){};Type.prototype=prototype,object=new Type,object.__proto__=prototype}return void 0!==properties&&Object.defineProperties(object,properties),object}}if(Object.defineProperty){var definePropertyWorksOnObject=doesDefinePropertyWork({}),definePropertyWorksOnDom=\"undefined\"==typeof document||doesDefinePropertyWork(document.createElement(\"div\"));if(!definePropertyWorksOnObject||!definePropertyWorksOnDom)var definePropertyFallback=Object.defineProperty}if(!Object.defineProperty||definePropertyFallback){var ERR_NON_OBJECT_DESCRIPTOR=\"Property description must be an object: \",ERR_NON_OBJECT_TARGET=\"Object.defineProperty called on non-object: \",ERR_ACCESSORS_NOT_SUPPORTED=\"getters & setters can not be defined on this javascript engine\";Object.defineProperty=function(object,property,descriptor){if(\"object\"!=typeof object&&\"function\"!=typeof object||null===object)throw new TypeError(ERR_NON_OBJECT_TARGET+object);if(\"object\"!=typeof descriptor&&\"function\"!=typeof descriptor||null===descriptor)throw new TypeError(ERR_NON_OBJECT_DESCRIPTOR+descriptor);if(definePropertyFallback)try{return definePropertyFallback.call(Object,object,property,descriptor)}catch(exception){}if(owns(descriptor,\"value\"))if(supportsAccessors&&(lookupGetter(object,property)||lookupSetter(object,property))){var prototype=object.__proto__;object.__proto__=prototypeOfObject,delete object[property],object[property]=descriptor.value,object.__proto__=prototype}else object[property]=descriptor.value;else{if(!supportsAccessors)throw new TypeError(ERR_ACCESSORS_NOT_SUPPORTED);owns(descriptor,\"get\")&&defineGetter(object,property,descriptor.get),owns(descriptor,\"set\")&&defineSetter(object,property,descriptor.set)}return object}}Object.defineProperties||(Object.defineProperties=function(object,properties){for(var property in properties)owns(properties,property)&&Object.defineProperty(object,property,properties[property]);return object}),Object.seal||(Object.seal=function(object){return object}),Object.freeze||(Object.freeze=function(object){return object});try{Object.freeze(function(){})}catch(exception){Object.freeze=function(freezeObject){return function(object){return\"function\"==typeof object?object:freezeObject(object)}}(Object.freeze)}if(Object.preventExtensions||(Object.preventExtensions=function(object){return object}),Object.isSealed||(Object.isSealed=function(){return!1}),Object.isFrozen||(Object.isFrozen=function(){return!1}),Object.isExtensible||(Object.isExtensible=function(object){if(Object(object)===object)throw new TypeError;for(var name=\"\";owns(object,name);)name+=\"?\";object[name]=!0;var returnValue=owns(object,name);return delete object[name],returnValue}),!Object.keys){var hasDontEnumBug=!0,dontEnums=[\"toString\",\"toLocaleString\",\"valueOf\",\"hasOwnProperty\",\"isPrototypeOf\",\"propertyIsEnumerable\",\"constructor\"],dontEnumsLength=dontEnums.length;for(var key in{toString:null})hasDontEnumBug=!1;Object.keys=function(object){if(\"object\"!=typeof object&&\"function\"!=typeof object||null===object)throw new TypeError(\"Object.keys called on a non-object\");var keys=[];for(var name in object)owns(object,name)&&keys.push(name);if(hasDontEnumBug)for(var i=0,ii=dontEnumsLength;ii>i;i++){var dontEnum=dontEnums[i];owns(object,dontEnum)&&keys.push(dontEnum)}return keys}}Date.now||(Date.now=function(){return(new Date).getTime()});var ws=\"\t\\n\u000b\\f\\r   ᠎             　\\u2028\\u2029﻿\";if(!String.prototype.trim||ws.trim()){ws=\"[\"+ws+\"]\";var trimBeginRegexp=RegExp(\"^\"+ws+ws+\"*\"),trimEndRegexp=RegExp(ws+ws+\"*$\");String.prototype.trim=function(){return(this+\"\").replace(trimBeginRegexp,\"\").replace(trimEndRegexp,\"\")}}var toObject=function(o){if(null==o)throw new TypeError(\"can't convert \"+o+\" to object\");return Object(o)}});";
+	module.exports.src = "\"no use strict\";!function(window){function resolveModuleId(id,paths){for(var testPath=id,tail=\"\";testPath;){var alias=paths[testPath];if(\"string\"==typeof alias)return alias+tail;if(alias)return alias.location.replace(/\\/*$/,\"/\")+(tail||alias.main||alias.name);if(alias===!1)return\"\";var i=testPath.lastIndexOf(\"/\");if(-1===i)break;tail=testPath.substr(i)+tail,testPath=testPath.slice(0,i)}return id}if(!(void 0!==window.window&&window.document||window.acequire&&window.define)){window.console||(window.console=function(){var msgs=Array.prototype.slice.call(arguments,0);postMessage({type:\"log\",data:msgs})},window.console.error=window.console.warn=window.console.log=window.console.trace=window.console),window.window=window,window.ace=window,window.onerror=function(message,file,line,col,err){postMessage({type:\"error\",data:{message:message,data:err.data,file:file,line:line,col:col,stack:err.stack}})},window.normalizeModule=function(parentId,moduleName){if(-1!==moduleName.indexOf(\"!\")){var chunks=moduleName.split(\"!\");return window.normalizeModule(parentId,chunks[0])+\"!\"+window.normalizeModule(parentId,chunks[1])}if(\".\"==moduleName.charAt(0)){var base=parentId.split(\"/\").slice(0,-1).join(\"/\");for(moduleName=(base?base+\"/\":\"\")+moduleName;-1!==moduleName.indexOf(\".\")&&previous!=moduleName;){var previous=moduleName;moduleName=moduleName.replace(/^\\.\\//,\"\").replace(/\\/\\.\\//,\"/\").replace(/[^\\/]+\\/\\.\\.\\//,\"\")}}return moduleName},window.acequire=function acequire(parentId,id){if(id||(id=parentId,parentId=null),!id.charAt)throw Error(\"worker.js acequire() accepts only (parentId, id) as arguments\");id=window.normalizeModule(parentId,id);var module=window.acequire.modules[id];if(module)return module.initialized||(module.initialized=!0,module.exports=module.factory().exports),module.exports;if(!window.acequire.tlns)return console.log(\"unable to load \"+id);var path=resolveModuleId(id,window.acequire.tlns);return\".js\"!=path.slice(-3)&&(path+=\".js\"),window.acequire.id=id,window.acequire.modules[id]={},importScripts(path),window.acequire(parentId,id)},window.acequire.modules={},window.acequire.tlns={},window.define=function(id,deps,factory){if(2==arguments.length?(factory=deps,\"string\"!=typeof id&&(deps=id,id=window.acequire.id)):1==arguments.length&&(factory=id,deps=[],id=window.acequire.id),\"function\"!=typeof factory)return window.acequire.modules[id]={exports:factory,initialized:!0},void 0;deps.length||(deps=[\"require\",\"exports\",\"module\"]);var req=function(childId){return window.acequire(id,childId)};window.acequire.modules[id]={exports:{},factory:function(){var module=this,returnExports=factory.apply(this,deps.map(function(dep){switch(dep){case\"require\":return req;case\"exports\":return module.exports;case\"module\":return module;default:return req(dep)}}));return returnExports&&(module.exports=returnExports),module}}},window.define.amd={},acequire.tlns={},window.initBaseUrls=function(topLevelNamespaces){for(var i in topLevelNamespaces)acequire.tlns[i]=topLevelNamespaces[i]},window.initSender=function(){var EventEmitter=window.acequire(\"ace/lib/event_emitter\").EventEmitter,oop=window.acequire(\"ace/lib/oop\"),Sender=function(){};return function(){oop.implement(this,EventEmitter),this.callback=function(data,callbackId){postMessage({type:\"call\",id:callbackId,data:data})},this.emit=function(name,data){postMessage({type:\"event\",name:name,data:data})}}.call(Sender.prototype),new Sender};var main=window.main=null,sender=window.sender=null;window.onmessage=function(e){var msg=e.data;if(msg.event&&sender)sender._signal(msg.event,msg.data);else if(msg.command)if(main[msg.command])main[msg.command].apply(main,msg.args);else{if(!window[msg.command])throw Error(\"Unknown command:\"+msg.command);window[msg.command].apply(window,msg.args)}else if(msg.init){window.initBaseUrls(msg.tlns),acequire(\"ace/lib/es5-shim\"),sender=window.sender=window.initSender();var clazz=acequire(msg.module)[msg.classname];main=window.main=new clazz(sender)}}}}(this),ace.define(\"ace/lib/oop\",[\"require\",\"exports\",\"module\"],function(acequire,exports){\"use strict\";exports.inherits=function(ctor,superCtor){ctor.super_=superCtor,ctor.prototype=Object.create(superCtor.prototype,{constructor:{value:ctor,enumerable:!1,writable:!0,configurable:!0}})},exports.mixin=function(obj,mixin){for(var key in mixin)obj[key]=mixin[key];return obj},exports.implement=function(proto,mixin){exports.mixin(proto,mixin)}}),ace.define(\"ace/range\",[\"require\",\"exports\",\"module\"],function(acequire,exports){\"use strict\";var comparePoints=function(p1,p2){return p1.row-p2.row||p1.column-p2.column},Range=function(startRow,startColumn,endRow,endColumn){this.start={row:startRow,column:startColumn},this.end={row:endRow,column:endColumn}};(function(){this.isEqual=function(range){return this.start.row===range.start.row&&this.end.row===range.end.row&&this.start.column===range.start.column&&this.end.column===range.end.column},this.toString=function(){return\"Range: [\"+this.start.row+\"/\"+this.start.column+\"] -> [\"+this.end.row+\"/\"+this.end.column+\"]\"},this.contains=function(row,column){return 0==this.compare(row,column)},this.compareRange=function(range){var cmp,end=range.end,start=range.start;return cmp=this.compare(end.row,end.column),1==cmp?(cmp=this.compare(start.row,start.column),1==cmp?2:0==cmp?1:0):-1==cmp?-2:(cmp=this.compare(start.row,start.column),-1==cmp?-1:1==cmp?42:0)},this.comparePoint=function(p){return this.compare(p.row,p.column)},this.containsRange=function(range){return 0==this.comparePoint(range.start)&&0==this.comparePoint(range.end)},this.intersects=function(range){var cmp=this.compareRange(range);return-1==cmp||0==cmp||1==cmp},this.isEnd=function(row,column){return this.end.row==row&&this.end.column==column},this.isStart=function(row,column){return this.start.row==row&&this.start.column==column},this.setStart=function(row,column){\"object\"==typeof row?(this.start.column=row.column,this.start.row=row.row):(this.start.row=row,this.start.column=column)},this.setEnd=function(row,column){\"object\"==typeof row?(this.end.column=row.column,this.end.row=row.row):(this.end.row=row,this.end.column=column)},this.inside=function(row,column){return 0==this.compare(row,column)?this.isEnd(row,column)||this.isStart(row,column)?!1:!0:!1},this.insideStart=function(row,column){return 0==this.compare(row,column)?this.isEnd(row,column)?!1:!0:!1},this.insideEnd=function(row,column){return 0==this.compare(row,column)?this.isStart(row,column)?!1:!0:!1},this.compare=function(row,column){return this.isMultiLine()||row!==this.start.row?this.start.row>row?-1:row>this.end.row?1:this.start.row===row?column>=this.start.column?0:-1:this.end.row===row?this.end.column>=column?0:1:0:this.start.column>column?-1:column>this.end.column?1:0},this.compareStart=function(row,column){return this.start.row==row&&this.start.column==column?-1:this.compare(row,column)},this.compareEnd=function(row,column){return this.end.row==row&&this.end.column==column?1:this.compare(row,column)},this.compareInside=function(row,column){return this.end.row==row&&this.end.column==column?1:this.start.row==row&&this.start.column==column?-1:this.compare(row,column)},this.clipRows=function(firstRow,lastRow){if(this.end.row>lastRow)var end={row:lastRow+1,column:0};else if(firstRow>this.end.row)var end={row:firstRow,column:0};if(this.start.row>lastRow)var start={row:lastRow+1,column:0};else if(firstRow>this.start.row)var start={row:firstRow,column:0};return Range.fromPoints(start||this.start,end||this.end)},this.extend=function(row,column){var cmp=this.compare(row,column);if(0==cmp)return this;if(-1==cmp)var start={row:row,column:column};else var end={row:row,column:column};return Range.fromPoints(start||this.start,end||this.end)},this.isEmpty=function(){return this.start.row===this.end.row&&this.start.column===this.end.column},this.isMultiLine=function(){return this.start.row!==this.end.row},this.clone=function(){return Range.fromPoints(this.start,this.end)},this.collapseRows=function(){return 0==this.end.column?new Range(this.start.row,0,Math.max(this.start.row,this.end.row-1),0):new Range(this.start.row,0,this.end.row,0)},this.toScreenRange=function(session){var screenPosStart=session.documentToScreenPosition(this.start),screenPosEnd=session.documentToScreenPosition(this.end);return new Range(screenPosStart.row,screenPosStart.column,screenPosEnd.row,screenPosEnd.column)},this.moveBy=function(row,column){this.start.row+=row,this.start.column+=column,this.end.row+=row,this.end.column+=column}}).call(Range.prototype),Range.fromPoints=function(start,end){return new Range(start.row,start.column,end.row,end.column)},Range.comparePoints=comparePoints,Range.comparePoints=function(p1,p2){return p1.row-p2.row||p1.column-p2.column},exports.Range=Range}),ace.define(\"ace/apply_delta\",[\"require\",\"exports\",\"module\"],function(acequire,exports){\"use strict\";exports.applyDelta=function(docLines,delta){var row=delta.start.row,startColumn=delta.start.column,line=docLines[row]||\"\";switch(delta.action){case\"insert\":var lines=delta.lines;if(1===lines.length)docLines[row]=line.substring(0,startColumn)+delta.lines[0]+line.substring(startColumn);else{var args=[row,1].concat(delta.lines);docLines.splice.apply(docLines,args),docLines[row]=line.substring(0,startColumn)+docLines[row],docLines[row+delta.lines.length-1]+=line.substring(startColumn)}break;case\"remove\":var endColumn=delta.end.column,endRow=delta.end.row;row===endRow?docLines[row]=line.substring(0,startColumn)+line.substring(endColumn):docLines.splice(row,endRow-row+1,line.substring(0,startColumn)+docLines[endRow].substring(endColumn))}}}),ace.define(\"ace/lib/event_emitter\",[\"require\",\"exports\",\"module\"],function(acequire,exports){\"use strict\";var EventEmitter={},stopPropagation=function(){this.propagationStopped=!0},preventDefault=function(){this.defaultPrevented=!0};EventEmitter._emit=EventEmitter._dispatchEvent=function(eventName,e){this._eventRegistry||(this._eventRegistry={}),this._defaultHandlers||(this._defaultHandlers={});var listeners=this._eventRegistry[eventName]||[],defaultHandler=this._defaultHandlers[eventName];if(listeners.length||defaultHandler){\"object\"==typeof e&&e||(e={}),e.type||(e.type=eventName),e.stopPropagation||(e.stopPropagation=stopPropagation),e.preventDefault||(e.preventDefault=preventDefault),listeners=listeners.slice();for(var i=0;listeners.length>i&&(listeners[i](e,this),!e.propagationStopped);i++);return defaultHandler&&!e.defaultPrevented?defaultHandler(e,this):void 0}},EventEmitter._signal=function(eventName,e){var listeners=(this._eventRegistry||{})[eventName];if(listeners){listeners=listeners.slice();for(var i=0;listeners.length>i;i++)listeners[i](e,this)}},EventEmitter.once=function(eventName,callback){var _self=this;callback&&this.addEventListener(eventName,function newCallback(){_self.removeEventListener(eventName,newCallback),callback.apply(null,arguments)})},EventEmitter.setDefaultHandler=function(eventName,callback){var handlers=this._defaultHandlers;if(handlers||(handlers=this._defaultHandlers={_disabled_:{}}),handlers[eventName]){var old=handlers[eventName],disabled=handlers._disabled_[eventName];disabled||(handlers._disabled_[eventName]=disabled=[]),disabled.push(old);var i=disabled.indexOf(callback);-1!=i&&disabled.splice(i,1)}handlers[eventName]=callback},EventEmitter.removeDefaultHandler=function(eventName,callback){var handlers=this._defaultHandlers;if(handlers){var disabled=handlers._disabled_[eventName];if(handlers[eventName]==callback)handlers[eventName],disabled&&this.setDefaultHandler(eventName,disabled.pop());else if(disabled){var i=disabled.indexOf(callback);-1!=i&&disabled.splice(i,1)}}},EventEmitter.on=EventEmitter.addEventListener=function(eventName,callback,capturing){this._eventRegistry=this._eventRegistry||{};var listeners=this._eventRegistry[eventName];return listeners||(listeners=this._eventRegistry[eventName]=[]),-1==listeners.indexOf(callback)&&listeners[capturing?\"unshift\":\"push\"](callback),callback},EventEmitter.off=EventEmitter.removeListener=EventEmitter.removeEventListener=function(eventName,callback){this._eventRegistry=this._eventRegistry||{};var listeners=this._eventRegistry[eventName];if(listeners){var index=listeners.indexOf(callback);-1!==index&&listeners.splice(index,1)}},EventEmitter.removeAllListeners=function(eventName){this._eventRegistry&&(this._eventRegistry[eventName]=[])},exports.EventEmitter=EventEmitter}),ace.define(\"ace/anchor\",[\"require\",\"exports\",\"module\",\"ace/lib/oop\",\"ace/lib/event_emitter\"],function(acequire,exports){\"use strict\";var oop=acequire(\"./lib/oop\"),EventEmitter=acequire(\"./lib/event_emitter\").EventEmitter,Anchor=exports.Anchor=function(doc,row,column){this.$onChange=this.onChange.bind(this),this.attach(doc),column===void 0?this.setPosition(row.row,row.column):this.setPosition(row,column)};(function(){function $pointsInOrder(point1,point2,equalPointsInOrder){var bColIsAfter=equalPointsInOrder?point1.column<=point2.column:point1.column<point2.column;return point1.row<point2.row||point1.row==point2.row&&bColIsAfter}function $getTransformedPoint(delta,point,moveIfEqual){var deltaIsInsert=\"insert\"==delta.action,deltaRowShift=(deltaIsInsert?1:-1)*(delta.end.row-delta.start.row),deltaColShift=(deltaIsInsert?1:-1)*(delta.end.column-delta.start.column),deltaStart=delta.start,deltaEnd=deltaIsInsert?deltaStart:delta.end;return $pointsInOrder(point,deltaStart,moveIfEqual)?{row:point.row,column:point.column}:$pointsInOrder(deltaEnd,point,!moveIfEqual)?{row:point.row+deltaRowShift,column:point.column+(point.row==deltaEnd.row?deltaColShift:0)}:{row:deltaStart.row,column:deltaStart.column}}oop.implement(this,EventEmitter),this.getPosition=function(){return this.$clipPositionToDocument(this.row,this.column)},this.getDocument=function(){return this.document},this.$insertRight=!1,this.onChange=function(delta){if(!(delta.start.row==delta.end.row&&delta.start.row!=this.row||delta.start.row>this.row)){var point=$getTransformedPoint(delta,{row:this.row,column:this.column},this.$insertRight);this.setPosition(point.row,point.column,!0)}},this.setPosition=function(row,column,noClip){var pos;if(pos=noClip?{row:row,column:column}:this.$clipPositionToDocument(row,column),this.row!=pos.row||this.column!=pos.column){var old={row:this.row,column:this.column};this.row=pos.row,this.column=pos.column,this._signal(\"change\",{old:old,value:pos})}},this.detach=function(){this.document.removeEventListener(\"change\",this.$onChange)},this.attach=function(doc){this.document=doc||this.document,this.document.on(\"change\",this.$onChange)},this.$clipPositionToDocument=function(row,column){var pos={};return row>=this.document.getLength()?(pos.row=Math.max(0,this.document.getLength()-1),pos.column=this.document.getLine(pos.row).length):0>row?(pos.row=0,pos.column=0):(pos.row=row,pos.column=Math.min(this.document.getLine(pos.row).length,Math.max(0,column))),0>column&&(pos.column=0),pos}}).call(Anchor.prototype)}),ace.define(\"ace/document\",[\"require\",\"exports\",\"module\",\"ace/lib/oop\",\"ace/apply_delta\",\"ace/lib/event_emitter\",\"ace/range\",\"ace/anchor\"],function(acequire,exports){\"use strict\";var oop=acequire(\"./lib/oop\"),applyDelta=acequire(\"./apply_delta\").applyDelta,EventEmitter=acequire(\"./lib/event_emitter\").EventEmitter,Range=acequire(\"./range\").Range,Anchor=acequire(\"./anchor\").Anchor,Document=function(textOrLines){this.$lines=[\"\"],0===textOrLines.length?this.$lines=[\"\"]:Array.isArray(textOrLines)?this.insertMergedLines({row:0,column:0},textOrLines):this.insert({row:0,column:0},textOrLines)};(function(){oop.implement(this,EventEmitter),this.setValue=function(text){var len=this.getLength()-1;this.remove(new Range(0,0,len,this.getLine(len).length)),this.insert({row:0,column:0},text)},this.getValue=function(){return this.getAllLines().join(this.getNewLineCharacter())},this.createAnchor=function(row,column){return new Anchor(this,row,column)},this.$split=0===\"aaa\".split(/a/).length?function(text){return text.replace(/\\r\\n|\\r/g,\"\\n\").split(\"\\n\")}:function(text){return text.split(/\\r\\n|\\r|\\n/)},this.$detectNewLine=function(text){var match=text.match(/^.*?(\\r\\n|\\r|\\n)/m);this.$autoNewLine=match?match[1]:\"\\n\",this._signal(\"changeNewLineMode\")},this.getNewLineCharacter=function(){switch(this.$newLineMode){case\"windows\":return\"\\r\\n\";case\"unix\":return\"\\n\";default:return this.$autoNewLine||\"\\n\"}},this.$autoNewLine=\"\",this.$newLineMode=\"auto\",this.setNewLineMode=function(newLineMode){this.$newLineMode!==newLineMode&&(this.$newLineMode=newLineMode,this._signal(\"changeNewLineMode\"))},this.getNewLineMode=function(){return this.$newLineMode},this.isNewLine=function(text){return\"\\r\\n\"==text||\"\\r\"==text||\"\\n\"==text},this.getLine=function(row){return this.$lines[row]||\"\"},this.getLines=function(firstRow,lastRow){return this.$lines.slice(firstRow,lastRow+1)},this.getAllLines=function(){return this.getLines(0,this.getLength())},this.getLength=function(){return this.$lines.length},this.getTextRange=function(range){return this.getLinesForRange(range).join(this.getNewLineCharacter())},this.getLinesForRange=function(range){var lines;if(range.start.row===range.end.row)lines=[this.getLine(range.start.row).substring(range.start.column,range.end.column)];else{lines=this.getLines(range.start.row,range.end.row),lines[0]=(lines[0]||\"\").substring(range.start.column);var l=lines.length-1;range.end.row-range.start.row==l&&(lines[l]=lines[l].substring(0,range.end.column))}return lines},this.insertLines=function(row,lines){return console.warn(\"Use of document.insertLines is deprecated. Use the insertFullLines method instead.\"),this.insertFullLines(row,lines)},this.removeLines=function(firstRow,lastRow){return console.warn(\"Use of document.removeLines is deprecated. Use the removeFullLines method instead.\"),this.removeFullLines(firstRow,lastRow)},this.insertNewLine=function(position){return console.warn(\"Use of document.insertNewLine is deprecated. Use insertMergedLines(position, ['', '']) instead.\"),this.insertMergedLines(position,[\"\",\"\"])},this.insert=function(position,text){return 1>=this.getLength()&&this.$detectNewLine(text),this.insertMergedLines(position,this.$split(text))},this.insertInLine=function(position,text){var start=this.clippedPos(position.row,position.column),end=this.pos(position.row,position.column+text.length);return this.applyDelta({start:start,end:end,action:\"insert\",lines:[text]},!0),this.clonePos(end)},this.clippedPos=function(row,column){var length=this.getLength();void 0===row?row=length:0>row?row=0:row>=length&&(row=length-1,column=void 0);var line=this.getLine(row);return void 0==column&&(column=line.length),column=Math.min(Math.max(column,0),line.length),{row:row,column:column}},this.clonePos=function(pos){return{row:pos.row,column:pos.column}},this.pos=function(row,column){return{row:row,column:column}},this.$clipPosition=function(position){var length=this.getLength();return position.row>=length?(position.row=Math.max(0,length-1),position.column=this.getLine(length-1).length):(position.row=Math.max(0,position.row),position.column=Math.min(Math.max(position.column,0),this.getLine(position.row).length)),position},this.insertFullLines=function(row,lines){row=Math.min(Math.max(row,0),this.getLength());var column=0;this.getLength()>row?(lines=lines.concat([\"\"]),column=0):(lines=[\"\"].concat(lines),row--,column=this.$lines[row].length),this.insertMergedLines({row:row,column:column},lines)},this.insertMergedLines=function(position,lines){var start=this.clippedPos(position.row,position.column),end={row:start.row+lines.length-1,column:(1==lines.length?start.column:0)+lines[lines.length-1].length};return this.applyDelta({start:start,end:end,action:\"insert\",lines:lines}),this.clonePos(end)},this.remove=function(range){var start=this.clippedPos(range.start.row,range.start.column),end=this.clippedPos(range.end.row,range.end.column);return this.applyDelta({start:start,end:end,action:\"remove\",lines:this.getLinesForRange({start:start,end:end})}),this.clonePos(start)},this.removeInLine=function(row,startColumn,endColumn){var start=this.clippedPos(row,startColumn),end=this.clippedPos(row,endColumn);return this.applyDelta({start:start,end:end,action:\"remove\",lines:this.getLinesForRange({start:start,end:end})},!0),this.clonePos(start)},this.removeFullLines=function(firstRow,lastRow){firstRow=Math.min(Math.max(0,firstRow),this.getLength()-1),lastRow=Math.min(Math.max(0,lastRow),this.getLength()-1);var deleteFirstNewLine=lastRow==this.getLength()-1&&firstRow>0,deleteLastNewLine=this.getLength()-1>lastRow,startRow=deleteFirstNewLine?firstRow-1:firstRow,startCol=deleteFirstNewLine?this.getLine(startRow).length:0,endRow=deleteLastNewLine?lastRow+1:lastRow,endCol=deleteLastNewLine?0:this.getLine(endRow).length,range=new Range(startRow,startCol,endRow,endCol),deletedLines=this.$lines.slice(firstRow,lastRow+1);return this.applyDelta({start:range.start,end:range.end,action:\"remove\",lines:this.getLinesForRange(range)}),deletedLines},this.removeNewLine=function(row){this.getLength()-1>row&&row>=0&&this.applyDelta({start:this.pos(row,this.getLine(row).length),end:this.pos(row+1,0),action:\"remove\",lines:[\"\",\"\"]})},this.replace=function(range,text){if(range instanceof Range||(range=Range.fromPoints(range.start,range.end)),0===text.length&&range.isEmpty())return range.start;if(text==this.getTextRange(range))return range.end;this.remove(range);var end;return end=text?this.insert(range.start,text):range.start},this.applyDeltas=function(deltas){for(var i=0;deltas.length>i;i++)this.applyDelta(deltas[i])},this.revertDeltas=function(deltas){for(var i=deltas.length-1;i>=0;i--)this.revertDelta(deltas[i])},this.applyDelta=function(delta,doNotValidate){var isInsert=\"insert\"==delta.action;(isInsert?1>=delta.lines.length&&!delta.lines[0]:!Range.comparePoints(delta.start,delta.end))||(isInsert&&delta.lines.length>2e4&&this.$splitAndapplyLargeDelta(delta,2e4),applyDelta(this.$lines,delta,doNotValidate),this._signal(\"change\",delta))},this.$splitAndapplyLargeDelta=function(delta,MAX){for(var lines=delta.lines,l=lines.length,row=delta.start.row,column=delta.start.column,from=0,to=0;;){from=to,to+=MAX-1;var chunk=lines.slice(from,to);if(to>l){delta.lines=chunk,delta.start.row=row+from,delta.start.column=column;break}chunk.push(\"\"),this.applyDelta({start:this.pos(row+from,column),end:this.pos(row+to,column=0),action:delta.action,lines:chunk},!0)}},this.revertDelta=function(delta){this.applyDelta({start:this.clonePos(delta.start),end:this.clonePos(delta.end),action:\"insert\"==delta.action?\"remove\":\"insert\",lines:delta.lines.slice()})},this.indexToPosition=function(index,startRow){for(var lines=this.$lines||this.getAllLines(),newlineLength=this.getNewLineCharacter().length,i=startRow||0,l=lines.length;l>i;i++)if(index-=lines[i].length+newlineLength,0>index)return{row:i,column:index+lines[i].length+newlineLength};return{row:l-1,column:lines[l-1].length}},this.positionToIndex=function(pos,startRow){for(var lines=this.$lines||this.getAllLines(),newlineLength=this.getNewLineCharacter().length,index=0,row=Math.min(pos.row,lines.length),i=startRow||0;row>i;++i)index+=lines[i].length+newlineLength;return index+pos.column}}).call(Document.prototype),exports.Document=Document}),ace.define(\"ace/lib/lang\",[\"require\",\"exports\",\"module\"],function(acequire,exports){\"use strict\";exports.last=function(a){return a[a.length-1]},exports.stringReverse=function(string){return string.split(\"\").reverse().join(\"\")},exports.stringRepeat=function(string,count){for(var result=\"\";count>0;)1&count&&(result+=string),(count>>=1)&&(string+=string);return result};var trimBeginRegexp=/^\\s\\s*/,trimEndRegexp=/\\s\\s*$/;exports.stringTrimLeft=function(string){return string.replace(trimBeginRegexp,\"\")},exports.stringTrimRight=function(string){return string.replace(trimEndRegexp,\"\")},exports.copyObject=function(obj){var copy={};for(var key in obj)copy[key]=obj[key];return copy},exports.copyArray=function(array){for(var copy=[],i=0,l=array.length;l>i;i++)copy[i]=array[i]&&\"object\"==typeof array[i]?this.copyObject(array[i]):array[i];return copy},exports.deepCopy=function deepCopy(obj){if(\"object\"!=typeof obj||!obj)return obj;var copy;if(Array.isArray(obj)){copy=[];for(var key=0;obj.length>key;key++)copy[key]=deepCopy(obj[key]);return copy}if(\"[object Object]\"!==Object.prototype.toString.call(obj))return obj;copy={};for(var key in obj)copy[key]=deepCopy(obj[key]);return copy},exports.arrayToMap=function(arr){for(var map={},i=0;arr.length>i;i++)map[arr[i]]=1;return map},exports.createMap=function(props){var map=Object.create(null);for(var i in props)map[i]=props[i];return map},exports.arrayRemove=function(array,value){for(var i=0;array.length>=i;i++)value===array[i]&&array.splice(i,1)},exports.escapeRegExp=function(str){return str.replace(/([.*+?^${}()|[\\]\\/\\\\])/g,\"\\\\$1\")},exports.escapeHTML=function(str){return str.replace(/&/g,\"&#38;\").replace(/\"/g,\"&#34;\").replace(/'/g,\"&#39;\").replace(/</g,\"&#60;\")},exports.getMatchOffsets=function(string,regExp){var matches=[];return string.replace(regExp,function(str){matches.push({offset:arguments[arguments.length-2],length:str.length})}),matches},exports.deferredCall=function(fcn){var timer=null,callback=function(){timer=null,fcn()},deferred=function(timeout){return deferred.cancel(),timer=setTimeout(callback,timeout||0),deferred};return deferred.schedule=deferred,deferred.call=function(){return this.cancel(),fcn(),deferred},deferred.cancel=function(){return clearTimeout(timer),timer=null,deferred},deferred.isPending=function(){return timer},deferred},exports.delayedCall=function(fcn,defaultTimeout){var timer=null,callback=function(){timer=null,fcn()},_self=function(timeout){null==timer&&(timer=setTimeout(callback,timeout||defaultTimeout))};return _self.delay=function(timeout){timer&&clearTimeout(timer),timer=setTimeout(callback,timeout||defaultTimeout)},_self.schedule=_self,_self.call=function(){this.cancel(),fcn()},_self.cancel=function(){timer&&clearTimeout(timer),timer=null},_self.isPending=function(){return timer},_self}}),ace.define(\"ace/worker/mirror\",[\"require\",\"exports\",\"module\",\"ace/range\",\"ace/document\",\"ace/lib/lang\"],function(acequire,exports){\"use strict\";acequire(\"../range\").Range;var Document=acequire(\"../document\").Document,lang=acequire(\"../lib/lang\"),Mirror=exports.Mirror=function(sender){this.sender=sender;var doc=this.doc=new Document(\"\"),deferredUpdate=this.deferredUpdate=lang.delayedCall(this.onUpdate.bind(this)),_self=this;sender.on(\"change\",function(e){var data=e.data;if(data[0].start)doc.applyDeltas(data);else for(var i=0;data.length>i;i+=2){if(Array.isArray(data[i+1]))var d={action:\"insert\",start:data[i],lines:data[i+1]};else var d={action:\"remove\",start:data[i],end:data[i+1]};doc.applyDelta(d,!0)}return _self.$timeout?deferredUpdate.schedule(_self.$timeout):(_self.onUpdate(),void 0)})};(function(){this.$timeout=500,this.setTimeout=function(timeout){this.$timeout=timeout},this.setValue=function(value){this.doc.setValue(value),this.deferredUpdate.schedule(this.$timeout)},this.getValue=function(callbackId){this.sender.callback(this.doc.getValue(),callbackId)},this.onUpdate=function(){},this.isPending=function(){return this.deferredUpdate.isPending()}}).call(Mirror.prototype)}),ace.define(\"ace/mode/json/json_parse\",[\"require\",\"exports\",\"module\"],function(){\"use strict\";var at,ch,text,value,escapee={'\"':'\"',\"\\\\\":\"\\\\\",\"/\":\"/\",b:\"\\b\",f:\"\\f\",n:\"\\n\",r:\"\\r\",t:\"\t\"},error=function(m){throw{name:\"SyntaxError\",message:m,at:at,text:text}},next=function(c){return c&&c!==ch&&error(\"Expected '\"+c+\"' instead of '\"+ch+\"'\"),ch=text.charAt(at),at+=1,ch},number=function(){var number,string=\"\";for(\"-\"===ch&&(string=\"-\",next(\"-\"));ch>=\"0\"&&\"9\">=ch;)string+=ch,next();if(\".\"===ch)for(string+=\".\";next()&&ch>=\"0\"&&\"9\">=ch;)string+=ch;if(\"e\"===ch||\"E\"===ch)for(string+=ch,next(),(\"-\"===ch||\"+\"===ch)&&(string+=ch,next());ch>=\"0\"&&\"9\">=ch;)string+=ch,next();return number=+string,isNaN(number)?(error(\"Bad number\"),void 0):number},string=function(){var hex,i,uffff,string=\"\";if('\"'===ch)for(;next();){if('\"'===ch)return next(),string;if(\"\\\\\"===ch)if(next(),\"u\"===ch){for(uffff=0,i=0;4>i&&(hex=parseInt(next(),16),isFinite(hex));i+=1)uffff=16*uffff+hex;string+=String.fromCharCode(uffff)}else{if(\"string\"!=typeof escapee[ch])break;string+=escapee[ch]}else string+=ch}error(\"Bad string\")},white=function(){for(;ch&&\" \">=ch;)next()},word=function(){switch(ch){case\"t\":return next(\"t\"),next(\"r\"),next(\"u\"),next(\"e\"),!0;case\"f\":return next(\"f\"),next(\"a\"),next(\"l\"),next(\"s\"),next(\"e\"),!1;case\"n\":return next(\"n\"),next(\"u\"),next(\"l\"),next(\"l\"),null}error(\"Unexpected '\"+ch+\"'\")},array=function(){var array=[];if(\"[\"===ch){if(next(\"[\"),white(),\"]\"===ch)return next(\"]\"),array;for(;ch;){if(array.push(value()),white(),\"]\"===ch)return next(\"]\"),array;next(\",\"),white()}}error(\"Bad array\")},object=function(){var key,object={};if(\"{\"===ch){if(next(\"{\"),white(),\"}\"===ch)return next(\"}\"),object;for(;ch;){if(key=string(),white(),next(\":\"),Object.hasOwnProperty.call(object,key)&&error('Duplicate key \"'+key+'\"'),object[key]=value(),white(),\"}\"===ch)return next(\"}\"),object;next(\",\"),white()}}error(\"Bad object\")};return value=function(){switch(white(),ch){case\"{\":return object();case\"[\":return array();case'\"':return string();case\"-\":return number();default:return ch>=\"0\"&&\"9\">=ch?number():word()}},function(source,reviver){var result;return text=source,at=0,ch=\" \",result=value(),white(),ch&&error(\"Syntax error\"),\"function\"==typeof reviver?function walk(holder,key){var k,v,value=holder[key];if(value&&\"object\"==typeof value)for(k in value)Object.hasOwnProperty.call(value,k)&&(v=walk(value,k),void 0!==v?value[k]=v:delete value[k]);return reviver.call(holder,key,value)}({\"\":result},\"\"):result}}),ace.define(\"ace/mode/json_worker\",[\"require\",\"exports\",\"module\",\"ace/lib/oop\",\"ace/worker/mirror\",\"ace/mode/json/json_parse\"],function(acequire,exports){\"use strict\";var oop=acequire(\"../lib/oop\"),Mirror=acequire(\"../worker/mirror\").Mirror,parse=acequire(\"./json/json_parse\"),JsonWorker=exports.JsonWorker=function(sender){Mirror.call(this,sender),this.setTimeout(200)};oop.inherits(JsonWorker,Mirror),function(){this.onUpdate=function(){var value=this.doc.getValue(),errors=[];try{value&&parse(value)}catch(e){var pos=this.doc.indexToPosition(e.at-1);errors.push({row:pos.row,column:pos.column,text:e.message,type:\"error\"})}this.sender.emit(\"annotate\",errors)}}.call(JsonWorker.prototype)}),ace.define(\"ace/lib/es5-shim\",[\"require\",\"exports\",\"module\"],function(){function Empty(){}function doesDefinePropertyWork(object){try{return Object.defineProperty(object,\"sentinel\",{}),\"sentinel\"in object}catch(exception){}}function toInteger(n){return n=+n,n!==n?n=0:0!==n&&n!==1/0&&n!==-(1/0)&&(n=(n>0||-1)*Math.floor(Math.abs(n))),n}Function.prototype.bind||(Function.prototype.bind=function(that){var target=this;if(\"function\"!=typeof target)throw new TypeError(\"Function.prototype.bind called on incompatible \"+target);var args=slice.call(arguments,1),bound=function(){if(this instanceof bound){var result=target.apply(this,args.concat(slice.call(arguments)));return Object(result)===result?result:this}return target.apply(that,args.concat(slice.call(arguments)))};return target.prototype&&(Empty.prototype=target.prototype,bound.prototype=new Empty,Empty.prototype=null),bound});var defineGetter,defineSetter,lookupGetter,lookupSetter,supportsAccessors,call=Function.prototype.call,prototypeOfArray=Array.prototype,prototypeOfObject=Object.prototype,slice=prototypeOfArray.slice,_toString=call.bind(prototypeOfObject.toString),owns=call.bind(prototypeOfObject.hasOwnProperty);if((supportsAccessors=owns(prototypeOfObject,\"__defineGetter__\"))&&(defineGetter=call.bind(prototypeOfObject.__defineGetter__),defineSetter=call.bind(prototypeOfObject.__defineSetter__),lookupGetter=call.bind(prototypeOfObject.__lookupGetter__),lookupSetter=call.bind(prototypeOfObject.__lookupSetter__)),2!=[1,2].splice(0).length)if(function(){function makeArray(l){var a=Array(l+2);return a[0]=a[1]=0,a}var lengthBefore,array=[];return array.splice.apply(array,makeArray(20)),array.splice.apply(array,makeArray(26)),lengthBefore=array.length,array.splice(5,0,\"XXX\"),lengthBefore+1==array.length,lengthBefore+1==array.length?!0:void 0\n}()){var array_splice=Array.prototype.splice;Array.prototype.splice=function(start,deleteCount){return arguments.length?array_splice.apply(this,[void 0===start?0:start,void 0===deleteCount?this.length-start:deleteCount].concat(slice.call(arguments,2))):[]}}else Array.prototype.splice=function(pos,removeCount){var length=this.length;pos>0?pos>length&&(pos=length):void 0==pos?pos=0:0>pos&&(pos=Math.max(length+pos,0)),length>pos+removeCount||(removeCount=length-pos);var removed=this.slice(pos,pos+removeCount),insert=slice.call(arguments,2),add=insert.length;if(pos===length)add&&this.push.apply(this,insert);else{var remove=Math.min(removeCount,length-pos),tailOldPos=pos+remove,tailNewPos=tailOldPos+add-remove,tailCount=length-tailOldPos,lengthAfterRemove=length-remove;if(tailOldPos>tailNewPos)for(var i=0;tailCount>i;++i)this[tailNewPos+i]=this[tailOldPos+i];else if(tailNewPos>tailOldPos)for(i=tailCount;i--;)this[tailNewPos+i]=this[tailOldPos+i];if(add&&pos===lengthAfterRemove)this.length=lengthAfterRemove,this.push.apply(this,insert);else for(this.length=lengthAfterRemove+add,i=0;add>i;++i)this[pos+i]=insert[i]}return removed};Array.isArray||(Array.isArray=function(obj){return\"[object Array]\"==_toString(obj)});var boxedString=Object(\"a\"),splitString=\"a\"!=boxedString[0]||!(0 in boxedString);if(Array.prototype.forEach||(Array.prototype.forEach=function(fun){var object=toObject(this),self=splitString&&\"[object String]\"==_toString(this)?this.split(\"\"):object,thisp=arguments[1],i=-1,length=self.length>>>0;if(\"[object Function]\"!=_toString(fun))throw new TypeError;for(;length>++i;)i in self&&fun.call(thisp,self[i],i,object)}),Array.prototype.map||(Array.prototype.map=function(fun){var object=toObject(this),self=splitString&&\"[object String]\"==_toString(this)?this.split(\"\"):object,length=self.length>>>0,result=Array(length),thisp=arguments[1];if(\"[object Function]\"!=_toString(fun))throw new TypeError(fun+\" is not a function\");for(var i=0;length>i;i++)i in self&&(result[i]=fun.call(thisp,self[i],i,object));return result}),Array.prototype.filter||(Array.prototype.filter=function(fun){var value,object=toObject(this),self=splitString&&\"[object String]\"==_toString(this)?this.split(\"\"):object,length=self.length>>>0,result=[],thisp=arguments[1];if(\"[object Function]\"!=_toString(fun))throw new TypeError(fun+\" is not a function\");for(var i=0;length>i;i++)i in self&&(value=self[i],fun.call(thisp,value,i,object)&&result.push(value));return result}),Array.prototype.every||(Array.prototype.every=function(fun){var object=toObject(this),self=splitString&&\"[object String]\"==_toString(this)?this.split(\"\"):object,length=self.length>>>0,thisp=arguments[1];if(\"[object Function]\"!=_toString(fun))throw new TypeError(fun+\" is not a function\");for(var i=0;length>i;i++)if(i in self&&!fun.call(thisp,self[i],i,object))return!1;return!0}),Array.prototype.some||(Array.prototype.some=function(fun){var object=toObject(this),self=splitString&&\"[object String]\"==_toString(this)?this.split(\"\"):object,length=self.length>>>0,thisp=arguments[1];if(\"[object Function]\"!=_toString(fun))throw new TypeError(fun+\" is not a function\");for(var i=0;length>i;i++)if(i in self&&fun.call(thisp,self[i],i,object))return!0;return!1}),Array.prototype.reduce||(Array.prototype.reduce=function(fun){var object=toObject(this),self=splitString&&\"[object String]\"==_toString(this)?this.split(\"\"):object,length=self.length>>>0;if(\"[object Function]\"!=_toString(fun))throw new TypeError(fun+\" is not a function\");if(!length&&1==arguments.length)throw new TypeError(\"reduce of empty array with no initial value\");var result,i=0;if(arguments.length>=2)result=arguments[1];else for(;;){if(i in self){result=self[i++];break}if(++i>=length)throw new TypeError(\"reduce of empty array with no initial value\")}for(;length>i;i++)i in self&&(result=fun.call(void 0,result,self[i],i,object));return result}),Array.prototype.reduceRight||(Array.prototype.reduceRight=function(fun){var object=toObject(this),self=splitString&&\"[object String]\"==_toString(this)?this.split(\"\"):object,length=self.length>>>0;if(\"[object Function]\"!=_toString(fun))throw new TypeError(fun+\" is not a function\");if(!length&&1==arguments.length)throw new TypeError(\"reduceRight of empty array with no initial value\");var result,i=length-1;if(arguments.length>=2)result=arguments[1];else for(;;){if(i in self){result=self[i--];break}if(0>--i)throw new TypeError(\"reduceRight of empty array with no initial value\")}do i in this&&(result=fun.call(void 0,result,self[i],i,object));while(i--);return result}),Array.prototype.indexOf&&-1==[0,1].indexOf(1,2)||(Array.prototype.indexOf=function(sought){var self=splitString&&\"[object String]\"==_toString(this)?this.split(\"\"):toObject(this),length=self.length>>>0;if(!length)return-1;var i=0;for(arguments.length>1&&(i=toInteger(arguments[1])),i=i>=0?i:Math.max(0,length+i);length>i;i++)if(i in self&&self[i]===sought)return i;return-1}),Array.prototype.lastIndexOf&&-1==[0,1].lastIndexOf(0,-3)||(Array.prototype.lastIndexOf=function(sought){var self=splitString&&\"[object String]\"==_toString(this)?this.split(\"\"):toObject(this),length=self.length>>>0;if(!length)return-1;var i=length-1;for(arguments.length>1&&(i=Math.min(i,toInteger(arguments[1]))),i=i>=0?i:length-Math.abs(i);i>=0;i--)if(i in self&&sought===self[i])return i;return-1}),Object.getPrototypeOf||(Object.getPrototypeOf=function(object){return object.__proto__||(object.constructor?object.constructor.prototype:prototypeOfObject)}),!Object.getOwnPropertyDescriptor){var ERR_NON_OBJECT=\"Object.getOwnPropertyDescriptor called on a non-object: \";Object.getOwnPropertyDescriptor=function(object,property){if(\"object\"!=typeof object&&\"function\"!=typeof object||null===object)throw new TypeError(ERR_NON_OBJECT+object);if(owns(object,property)){var descriptor,getter,setter;if(descriptor={enumerable:!0,configurable:!0},supportsAccessors){var prototype=object.__proto__;object.__proto__=prototypeOfObject;var getter=lookupGetter(object,property),setter=lookupSetter(object,property);if(object.__proto__=prototype,getter||setter)return getter&&(descriptor.get=getter),setter&&(descriptor.set=setter),descriptor}return descriptor.value=object[property],descriptor}}}if(Object.getOwnPropertyNames||(Object.getOwnPropertyNames=function(object){return Object.keys(object)}),!Object.create){var createEmpty;createEmpty=null===Object.prototype.__proto__?function(){return{__proto__:null}}:function(){var empty={};for(var i in empty)empty[i]=null;return empty.constructor=empty.hasOwnProperty=empty.propertyIsEnumerable=empty.isPrototypeOf=empty.toLocaleString=empty.toString=empty.valueOf=empty.__proto__=null,empty},Object.create=function(prototype,properties){var object;if(null===prototype)object=createEmpty();else{if(\"object\"!=typeof prototype)throw new TypeError(\"typeof prototype[\"+typeof prototype+\"] != 'object'\");var Type=function(){};Type.prototype=prototype,object=new Type,object.__proto__=prototype}return void 0!==properties&&Object.defineProperties(object,properties),object}}if(Object.defineProperty){var definePropertyWorksOnObject=doesDefinePropertyWork({}),definePropertyWorksOnDom=\"undefined\"==typeof document||doesDefinePropertyWork(document.createElement(\"div\"));if(!definePropertyWorksOnObject||!definePropertyWorksOnDom)var definePropertyFallback=Object.defineProperty}if(!Object.defineProperty||definePropertyFallback){var ERR_NON_OBJECT_DESCRIPTOR=\"Property description must be an object: \",ERR_NON_OBJECT_TARGET=\"Object.defineProperty called on non-object: \",ERR_ACCESSORS_NOT_SUPPORTED=\"getters & setters can not be defined on this javascript engine\";Object.defineProperty=function(object,property,descriptor){if(\"object\"!=typeof object&&\"function\"!=typeof object||null===object)throw new TypeError(ERR_NON_OBJECT_TARGET+object);if(\"object\"!=typeof descriptor&&\"function\"!=typeof descriptor||null===descriptor)throw new TypeError(ERR_NON_OBJECT_DESCRIPTOR+descriptor);if(definePropertyFallback)try{return definePropertyFallback.call(Object,object,property,descriptor)}catch(exception){}if(owns(descriptor,\"value\"))if(supportsAccessors&&(lookupGetter(object,property)||lookupSetter(object,property))){var prototype=object.__proto__;object.__proto__=prototypeOfObject,delete object[property],object[property]=descriptor.value,object.__proto__=prototype}else object[property]=descriptor.value;else{if(!supportsAccessors)throw new TypeError(ERR_ACCESSORS_NOT_SUPPORTED);owns(descriptor,\"get\")&&defineGetter(object,property,descriptor.get),owns(descriptor,\"set\")&&defineSetter(object,property,descriptor.set)}return object}}Object.defineProperties||(Object.defineProperties=function(object,properties){for(var property in properties)owns(properties,property)&&Object.defineProperty(object,property,properties[property]);return object}),Object.seal||(Object.seal=function(object){return object}),Object.freeze||(Object.freeze=function(object){return object});try{Object.freeze(function(){})}catch(exception){Object.freeze=function(freezeObject){return function(object){return\"function\"==typeof object?object:freezeObject(object)}}(Object.freeze)}if(Object.preventExtensions||(Object.preventExtensions=function(object){return object}),Object.isSealed||(Object.isSealed=function(){return!1}),Object.isFrozen||(Object.isFrozen=function(){return!1}),Object.isExtensible||(Object.isExtensible=function(object){if(Object(object)===object)throw new TypeError;for(var name=\"\";owns(object,name);)name+=\"?\";object[name]=!0;var returnValue=owns(object,name);return delete object[name],returnValue}),!Object.keys){var hasDontEnumBug=!0,dontEnums=[\"toString\",\"toLocaleString\",\"valueOf\",\"hasOwnProperty\",\"isPrototypeOf\",\"propertyIsEnumerable\",\"constructor\"],dontEnumsLength=dontEnums.length;for(var key in{toString:null})hasDontEnumBug=!1;Object.keys=function(object){if(\"object\"!=typeof object&&\"function\"!=typeof object||null===object)throw new TypeError(\"Object.keys called on a non-object\");var keys=[];for(var name in object)owns(object,name)&&keys.push(name);if(hasDontEnumBug)for(var i=0,ii=dontEnumsLength;ii>i;i++){var dontEnum=dontEnums[i];owns(object,dontEnum)&&keys.push(dontEnum)}return keys}}Date.now||(Date.now=function(){return(new Date).getTime()});var ws=\"\t\\n\u000b\\f\\r   ᠎             　\\u2028\\u2029﻿\";if(!String.prototype.trim||ws.trim()){ws=\"[\"+ws+\"]\";var trimBeginRegexp=RegExp(\"^\"+ws+ws+\"*\"),trimEndRegexp=RegExp(ws+ws+\"*$\");String.prototype.trim=function(){return(this+\"\").replace(trimBeginRegexp,\"\").replace(trimEndRegexp,\"\")}}var toObject=function(o){if(null==o)throw new TypeError(\"can't convert \"+o+\" to object\");return Object(o)}});";
 
 /***/ },
-/* 16 */
+/* 21 */
 /***/ function(module, exports) {
 
 	ace.define("ace/ext/searchbox",["require","exports","module","ace/lib/dom","ace/lib/lang","ace/lib/event","ace/keyboard/hash_handler","ace/lib/keys"], function(acequire, exports, module) {
@@ -9158,16 +11640,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	var searchboxCss = "\
 	.ace_search {\
 	background-color: #ddd;\
+	color: #666;\
 	border: 1px solid #cbcbcb;\
 	border-top: 0 none;\
-	max-width: 325px;\
 	overflow: hidden;\
 	margin: 0;\
-	padding: 4px;\
-	padding-right: 6px;\
-	padding-bottom: 0;\
+	padding: 4px 6px 0 4px;\
 	position: absolute;\
-	top: 0px;\
+	top: 0;\
 	z-index: 99;\
 	white-space: normal;\
 	}\
@@ -9182,59 +11662,71 @@ return /******/ (function(modules) { // webpackBootstrap
 	right: 0;\
 	}\
 	.ace_search_form, .ace_replace_form {\
-	border-radius: 3px;\
-	border: 1px solid #cbcbcb;\
-	float: left;\
-	margin-bottom: 4px;\
+	margin: 0 20px 4px 0;\
 	overflow: hidden;\
+	line-height: 1.9;\
+	}\
+	.ace_replace_form {\
+	margin-right: 0;\
 	}\
 	.ace_search_form.ace_nomatch {\
 	outline: 1px solid red;\
 	}\
 	.ace_search_field {\
+	border-radius: 3px 0 0 3px;\
 	background-color: white;\
-	border-right: 1px solid #cbcbcb;\
-	border: 0 none;\
-	-webkit-box-sizing: border-box;\
-	-moz-box-sizing: border-box;\
-	box-sizing: border-box;\
-	float: left;\
-	height: 22px;\
+	color: black;\
+	border: 1px solid #cbcbcb;\
+	border-right: 0 none;\
+	box-sizing: border-box!important;\
 	outline: 0;\
-	padding: 0 7px;\
-	width: 214px;\
+	padding: 0;\
+	font-size: inherit;\
 	margin: 0;\
+	line-height: inherit;\
+	padding: 0 6px;\
+	min-width: 17em;\
+	vertical-align: top;\
 	}\
-	.ace_searchbtn,\
-	.ace_replacebtn {\
+	.ace_searchbtn {\
+	border: 1px solid #cbcbcb;\
+	line-height: inherit;\
+	display: inline-block;\
+	padding: 0 6px;\
 	background: #fff;\
-	border: 0 none;\
+	border-right: 0 none;\
 	border-left: 1px solid #dcdcdc;\
 	cursor: pointer;\
-	float: left;\
-	height: 22px;\
 	margin: 0;\
 	position: relative;\
+	box-sizing: content-box!important;\
+	color: #666;\
 	}\
-	.ace_searchbtn:last-child,\
-	.ace_replacebtn:last-child {\
-	border-top-right-radius: 3px;\
-	border-bottom-right-radius: 3px;\
+	.ace_searchbtn:last-child {\
+	border-radius: 0 3px 3px 0;\
+	border-right: 1px solid #cbcbcb;\
 	}\
 	.ace_searchbtn:disabled {\
 	background: none;\
 	cursor: default;\
 	}\
-	.ace_searchbtn {\
-	background-position: 50% 50%;\
-	background-repeat: no-repeat;\
-	width: 27px;\
+	.ace_searchbtn:hover {\
+	background-color: #eef1f6;\
 	}\
-	.ace_searchbtn.prev {\
-	background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAFCAYAAAB4ka1VAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAADFJREFUeNpiSU1NZUAC/6E0I0yACYskCpsJiySKIiY0SUZk40FyTEgCjGgKwTRAgAEAQJUIPCE+qfkAAAAASUVORK5CYII=);    \
+	.ace_searchbtn.prev, .ace_searchbtn.next {\
+	padding: 0px 0.7em\
 	}\
-	.ace_searchbtn.next {\
-	background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAFCAYAAAB4ka1VAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAADRJREFUeNpiTE1NZQCC/0DMyIAKwGJMUAYDEo3M/s+EpvM/mkKwCQxYjIeLMaELoLMBAgwAU7UJObTKsvAAAAAASUVORK5CYII=);    \
+	.ace_searchbtn.prev:after, .ace_searchbtn.next:after {\
+	content: \"\";\
+	border: solid 2px #888;\
+	width: 0.5em;\
+	height: 0.5em;\
+	border-width:  2px 0 0 2px;\
+	display:inline-block;\
+	transform: rotate(-45deg);\
+	}\
+	.ace_searchbtn.next:after {\
+	border-width: 0 2px 2px 0 ;\
 	}\
 	.ace_searchbtn_close {\
 	background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAcCAYAAABRVo5BAAAAZ0lEQVR42u2SUQrAMAhDvazn8OjZBilCkYVVxiis8H4CT0VrAJb4WHT3C5xU2a2IQZXJjiQIRMdkEoJ5Q2yMqpfDIo+XY4k6h+YXOyKqTIj5REaxloNAd0xiKmAtsTHqW8sR2W5f7gCu5nWFUpVjZwAAAABJRU5ErkJggg==) no-repeat 50% 0;\
@@ -9242,24 +11734,18 @@ return /******/ (function(modules) { // webpackBootstrap
 	border: 0 none;\
 	color: #656565;\
 	cursor: pointer;\
-	float: right;\
 	font: 16px/16px Arial;\
-	height: 14px;\
-	margin: 5px 1px 9px 5px;\
 	padding: 0;\
-	text-align: center;\
+	height: 14px;\
 	width: 14px;\
+	top: 9px;\
+	right: 7px;\
+	position: absolute;\
 	}\
 	.ace_searchbtn_close:hover {\
 	background-color: #656565;\
 	background-position: 50% 100%;\
 	color: white;\
-	}\
-	.ace_replacebtn.prev {\
-	width: 54px\
-	}\
-	.ace_replacebtn.next {\
-	width: 27px\
 	}\
 	.ace_button {\
 	margin-left: 2px;\
@@ -9273,8 +11759,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	opacity: 0.7;\
 	border: 1px solid rgba(100,100,100,0.23);\
 	padding: 1px;\
-	-moz-box-sizing: border-box;\
-	box-sizing:    border-box;\
+	box-sizing:    border-box!important;\
 	color: black;\
 	}\
 	.ace_button:hover {\
@@ -9296,36 +11781,50 @@ return /******/ (function(modules) { // webpackBootstrap
 	-o-user-select: none;\
 	-ms-user-select: none;\
 	user-select: none;\
+	clear: both;\
+	}\
+	.ace_search_counter {\
+	float: left;\
+	font-family: arial;\
+	padding: 0 8px;\
 	}";
 	var HashHandler = acequire("../keyboard/hash_handler").HashHandler;
 	var keyUtil = acequire("../lib/keys");
 
+	var MAX_COUNT = 999;
+
 	dom.importCssString(searchboxCss, "ace_searchbox");
 
 	var html = '<div class="ace_search right">\
-	    <button type="button" action="hide" class="ace_searchbtn_close"></button>\
+	    <span action="hide" class="ace_searchbtn_close"></span>\
 	    <div class="ace_search_form">\
 	        <input class="ace_search_field" placeholder="Search for" spellcheck="false"></input>\
-	        <button type="button" action="findNext" class="ace_searchbtn next"></button>\
-	        <button type="button" action="findPrev" class="ace_searchbtn prev"></button>\
-	        <button type="button" action="findAll" class="ace_searchbtn" title="Alt-Enter">All</button>\
+	        <span action="findPrev" class="ace_searchbtn prev"></span>\
+	        <span action="findNext" class="ace_searchbtn next"></span>\
+	        <span action="findAll" class="ace_searchbtn" title="Alt-Enter">All</span>\
 	    </div>\
 	    <div class="ace_replace_form">\
 	        <input class="ace_search_field" placeholder="Replace with" spellcheck="false"></input>\
-	        <button type="button" action="replaceAndFindNext" class="ace_replacebtn">Replace</button>\
-	        <button type="button" action="replaceAll" class="ace_replacebtn">All</button>\
+	        <span action="replaceAndFindNext" class="ace_searchbtn">Replace</span>\
+	        <span action="replaceAll" class="ace_searchbtn">All</span>\
 	    </div>\
 	    <div class="ace_search_options">\
+	        <span action="toggleReplace" class="ace_button" title="Toggel Replace mode"\
+	            style="float:left;margin-top:-2px;padding:0 5px;">+</span>\
+	        <span class="ace_search_counter"></span>\
 	        <span action="toggleRegexpMode" class="ace_button" title="RegExp Search">.*</span>\
 	        <span action="toggleCaseSensitive" class="ace_button" title="CaseSensitive Search">Aa</span>\
 	        <span action="toggleWholeWords" class="ace_button" title="Whole Word Search">\\b</span>\
+	        <span action="searchInSelection" class="ace_button" title="Search In Selection">S</span>\
 	    </div>\
-	</div>'.replace(/>\s+/g, ">");
+	</div>'.replace(/> +/g, ">");
 
 	var SearchBox = function(editor, range, showReplaceForm) {
 	    var div = dom.createElement("div");
 	    div.innerHTML = html;
 	    this.element = div.firstChild;
+
+	    this.setSession = this.setSession.bind(this);
 
 	    this.$init();
 	    this.setEditor(editor);
@@ -9334,19 +11833,26 @@ return /******/ (function(modules) { // webpackBootstrap
 	(function() {
 	    this.setEditor = function(editor) {
 	        editor.searchBox = this;
-	        editor.container.appendChild(this.element);
+	        editor.renderer.scroller.appendChild(this.element);
 	        this.editor = editor;
+	    };
+
+	    this.setSession = function(e) {
+	        this.searchRange = null;
+	        this.$syncOptions(true);
 	    };
 
 	    this.$initElements = function(sb) {
 	        this.searchBox = sb.querySelector(".ace_search_form");
 	        this.replaceBox = sb.querySelector(".ace_replace_form");
-	        this.searchOptions = sb.querySelector(".ace_search_options");
+	        this.searchOption = sb.querySelector("[action=searchInSelection]");
+	        this.replaceOption = sb.querySelector("[action=toggleReplace]");
 	        this.regExpOption = sb.querySelector("[action=toggleRegexpMode]");
 	        this.caseSensitiveOption = sb.querySelector("[action=toggleCaseSensitive]");
 	        this.wholeWordOption = sb.querySelector("[action=toggleWholeWords]");
 	        this.searchInput = this.searchBox.querySelector(".ace_search_field");
 	        this.replaceInput = this.replaceBox.querySelector(".ace_search_field");
+	        this.searchCounter = sb.querySelector(".ace_search_counter");
 	    };
 	    
 	    this.$init = function() {
@@ -9408,10 +11914,13 @@ return /******/ (function(modules) { // webpackBootstrap
 	        "Ctrl-f|Command-f": function(sb) {
 	            var isReplace = sb.isReplace = !sb.isReplace;
 	            sb.replaceBox.style.display = isReplace ? "" : "none";
+	            sb.replaceOption.checked = false;
+	            sb.$syncOptions();
 	            sb.searchInput.focus();
 	        },
 	        "Ctrl-H|Command-Option-F": function(sb) {
-	            sb.replaceBox.style.display = "";
+	            sb.replaceOption.checked = true;
+	            sb.$syncOptions();
 	            sb.replaceInput.focus();
 	        },
 	        "Ctrl-G|Command-G": function(sb) {
@@ -9464,18 +11973,45 @@ return /******/ (function(modules) { // webpackBootstrap
 	            sb.wholeWordOption.checked = !sb.wholeWordOption.checked;
 	            sb.$syncOptions();
 	        }
+	    }, {
+	        name: "toggleReplace",
+	        exec: function(sb) {
+	            sb.replaceOption.checked = !sb.replaceOption.checked;
+	            sb.$syncOptions();
+	        }
+	    }, {
+	        name: "searchInSelection",
+	        exec: function(sb) {
+	            sb.searchOption.checked = !sb.searchRange;
+	            sb.setSearchRange(sb.searchOption.checked && sb.editor.getSelectionRange());
+	            sb.$syncOptions();
+	        }
 	    }]);
 
-	    this.$syncOptions = function() {
+	    this.setSearchRange = function(range) {
+	        this.searchRange = range;
+	        if (range) {
+	            this.searchRangeMarker = this.editor.session.addMarker(range, "ace_active-line");
+	        } else if (this.searchRangeMarker) {
+	            this.editor.session.removeMarker(this.searchRangeMarker);
+	            this.searchRangeMarker = null;
+	        }
+	    };
+
+	    this.$syncOptions = function(preventScroll) {
+	        dom.setCssClass(this.replaceOption, "checked", this.searchRange);
+	        dom.setCssClass(this.searchOption, "checked", this.searchOption.checked);
+	        this.replaceOption.textContent = this.replaceOption.checked ? "-" : "+";
 	        dom.setCssClass(this.regExpOption, "checked", this.regExpOption.checked);
 	        dom.setCssClass(this.wholeWordOption, "checked", this.wholeWordOption.checked);
 	        dom.setCssClass(this.caseSensitiveOption, "checked", this.caseSensitiveOption.checked);
-	        this.find(false, false);
+	        this.replaceBox.style.display = this.replaceOption.checked ? "" : "none";
+	        this.find(false, false, preventScroll);
 	    };
 
 	    this.highlight = function(re) {
 	        this.editor.session.highlight(re || this.editor.$search.$options.re);
-	        this.editor.renderer.updateBackMarkers()
+	        this.editor.renderer.updateBackMarkers();
 	    };
 	    this.find = function(skipCurrent, backwards, preventScroll) {
 	        var range = this.editor.find(this.searchInput.value, {
@@ -9485,12 +12021,46 @@ return /******/ (function(modules) { // webpackBootstrap
 	            regExp: this.regExpOption.checked,
 	            caseSensitive: this.caseSensitiveOption.checked,
 	            wholeWord: this.wholeWordOption.checked,
-	            preventScroll: preventScroll
+	            preventScroll: preventScroll,
+	            range: this.searchRange
 	        });
 	        var noMatch = !range && this.searchInput.value;
 	        dom.setCssClass(this.searchBox, "ace_nomatch", noMatch);
 	        this.editor._emit("findSearchBox", { match: !noMatch });
 	        this.highlight();
+	        this.updateCounter();
+	    };
+	    this.updateCounter = function() {
+	        var editor = this.editor;
+	        var regex = editor.$search.$options.re;
+	        var all = 0;
+	        var before = 0;
+	        if (regex) {
+	            var value = this.searchRange
+	                ? editor.session.getTextRange(this.searchRange)
+	                : editor.getValue();
+
+	            var offset = editor.session.doc.positionToIndex(editor.selection.anchor);
+	            if (this.searchRange)
+	                offset -= editor.session.doc.positionToIndex(this.searchRange.start);
+
+	            var last = regex.lastIndex = 0;
+	            var m;
+	            while ((m = regex.exec(value))) {
+	                all++;
+	                last = m.index;
+	                if (last <= offset)
+	                    before++;
+	                if (all > MAX_COUNT)
+	                    break;
+	                if (!m[0]) {
+	                    regex.lastIndex = last += 1;
+	                    if (last >= value.length)
+	                        break;
+	                }
+	            }
+	        }
+	        this.searchCounter.textContent = before + " of " + (all > MAX_COUNT ? MAX_COUNT + "+" : all);
 	    };
 	    this.findNext = function() {
 	        this.find(true, false);
@@ -9517,7 +12087,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    this.replaceAndFindNext = function() {
 	        if (!this.editor.getReadOnly()) {
 	            this.editor.replace(this.replaceInput.value);
-	            this.findNext()
+	            this.findNext();
 	        }
 	    };
 	    this.replaceAll = function() {
@@ -9526,31 +12096,35 @@ return /******/ (function(modules) { // webpackBootstrap
 	    };
 
 	    this.hide = function() {
+	        this.active = false;
+	        this.setSearchRange(null);
+	        this.editor.off("changeSession", this.setSession);
+
 	        this.element.style.display = "none";
 	        this.editor.keyBinding.removeKeyboardHandler(this.$closeSearchBarKb);
 	        this.editor.focus();
 	    };
 	    this.show = function(value, isReplace) {
+	        this.active = true;
+	        this.editor.on("changeSession", this.setSession);
 	        this.element.style.display = "";
-	        this.replaceBox.style.display = isReplace ? "" : "none";
-
-	        this.isReplace = isReplace;
+	        this.replaceOption.checked = isReplace;
 
 	        if (value)
 	            this.searchInput.value = value;
-	        
-	        this.find(false, false, true);
 	        
 	        this.searchInput.focus();
 	        this.searchInput.select();
 
 	        this.editor.keyBinding.addKeyboardHandler(this.$closeSearchBarKb);
+
+	        this.$syncOptions(true);
 	    };
 
 	    this.isFocused = function() {
 	        var el = document.activeElement;
 	        return el == this.searchInput || el == this.replaceInput;
-	    }
+	    };
 	}).call(SearchBox.prototype);
 
 	exports.SearchBox = SearchBox;
@@ -9567,7 +12141,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            
 
 /***/ },
-/* 17 */
+/* 22 */
 /***/ function(module, exports) {
 
 	/* ***** BEGIN LICENSE BLOCK *****
@@ -9610,8 +12184,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	}\
 	\
 	.ace-jsoneditor.ace_editor {\
-	font-family: droid sans mono, consolas, monospace, courier new, courier, sans-serif;\
+	font-family: \"dejavu sans mono\", \"droid sans mono\", consolas, monaco, \"lucida console\", \"courier new\", courier, monospace, sans-serif;\
 	line-height: 1.3;\
+	background-color: #fff;\
 	}\
 	.ace-jsoneditor .ace_print-margin {\
 	width: 1px;\

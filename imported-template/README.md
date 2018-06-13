@@ -1,8 +1,9 @@
-&lt;imported-template&gt; [![Build Status](https://travis-ci.org/Juicy/imported-template.svg?branch=gh-pages)](https://travis-ci.org/Juicy/imported-template)
+&lt;imported-template&gt; [![Build Status](https://travis-ci.org/Juicy/imported-template.svg?branch=master)](https://travis-ci.org/Juicy/imported-template)
 ==============
+> Declarative way for client-side includes boosted with HTML Imports features.
 
-`<imported-template>` is a custom element that let's you load template from external file into your document, and take full control over loaded `<script>`s and `<link rel="import">`s. Thanks to HTML Imports - caching, script execution, etc. is completely native.
-It also provides simple data-binding feature, that plays nice with Polymer or pure JavaScript + HTML data-binding.
+`<imported-template>` is a custom element that lets you load template from external file into your document, and take full control over loaded `<script>`s and `<link rel="import">`s. Thanks to HTML Imports - caching, script execution, etc. are completely native.
+It also provides a simple data-binding feature, that plays nice with Polymer or pure JavaScript + HTML data-binding.
 
 ### Small sample
 
@@ -16,17 +17,22 @@ If you have your partial **/path/to/file.html** full of your HTML magic:
 	<script>doMagicPerStampedContent();</script>
 </template>
 ```
-You can stamp template content in your main document with just
+You can load all dependencies and stamp template content in your main document with just
 ```html
-<template is="imported-template" content="/path/to/file.html"></template>
+<imported-template href="/path/to/file.html"></imported-template>
 ```
+
+> Please note that dependencies will be loaded only once, but content and inner `<script>doMagic...` will get stamped and executed as many times as you use `<imported-template>`
 
 ## Demo/Examples
 
 To see more features and examples
 [Check it live!](http://juicy.github.io/imported-template/examples/index.html)
 
+## [Tests/Spec](http://juicy.github.io/imported-template/test/)
+
 ## Features
+See the full article on features, use cases and the way it's done at http://starcounter.io/html-partialsincludes-webcomponents-way/
 
  - Imports external files, and stamps inline HTML markup,
  - Supports multiple (concatenated) templates per partial,
@@ -35,17 +41,17 @@ To see more features and examples
   - Supports `<script>, <link>, <style>` tags to be executed once,
   - Supports `<script>, <style>` tags per template instance,
  - Attaches data-binding to imported content,
- - Works fine with Polymer auto-binding features (for > 1.0.0 also)
+ - Works fine with Polymer auto-binding features
 
 
 ### Partial limitations
 
  - It should be W3C compliant Document body,
- - It should contain at least one `<template>` tag in root node.
+ - It should contain at least one `<template>` tag in the root node.
 
 ### Rationale
 
-`imported-template` evolved out of [x-html](https://github.com/PuppetJs/x-html) (now [`juicy-html`](https://github.com/Juicy/juicy-html) ) due to need for better control of `<scripts>` and HTML Imports execution. See discussion [here](https://github.com/Juicy/juicy-html/issues/8)
+`imported-template` evolved out of [x-html](https://github.com/Palindrom/x-html) (now [`juicy-html`](https://github.com/Juicy/juicy-html) ) due to need for better control of `<scripts>` and HTML Imports execution. See discussion [here](https://github.com/Juicy/juicy-html/issues/8)
 
 
 ## Install
@@ -56,14 +62,14 @@ Install the component using [Bower](http://bower.io/):
 $ bower install imported-template --save
 ```
 
-Or [download as ZIP](https://github.com/Juicy/imported-template/archive/gh-pages.zip).
+Or [download as ZIP](https://github.com/Juicy/imported-template/archive/master.zip).
 
 ## Usage
 
 1. Import Web Components' polyfill, if needed:
 
     ```html
-    <script src="bower_components/webcomponentsjs/webcomponents.js"></script>
+    <script src="bower_components/webcomponentsjs/webcomponents-lite.js"></script>
     ```
 
 2. Import Custom Element:
@@ -76,32 +82,40 @@ Or [download as ZIP](https://github.com/Juicy/imported-template/archive/gh-pages
 
 	To load content from file:
     ```html
-    <template is="imported-template" content="./your/partial.html"></template>
+    <imported-template href="/your/partial.html"></imported-template>
     ```
 	To attach data to content:
     ```html
-    <template is="imported-template" content="./your/partial.html" model='{"json":"data"}'></template>
+    <imported-template href="/your/partial.html" model='{"json":"data"}'></imported-template>
 	```
 
 ## Attributes/Properties
 
-Attribute | Options      | Default  | Description
----       | ---          | ---      | ---
-`content` | *String*	 | `""`		| Safe HTML code, or path (starts with `/`, `./`, or `../`) to partial to be loaded.
-`model`   | *JSON*		 | 			| (_optional_) Data model to be attached to every stamped node
+Attribute           | Options         | Default     | Description
+---                 | ---             | ---         | ---
+`html`              | *String*		  | `""`	    | Safe HTML code to be stamped. Setting this one will skip any pending request for `href` and remove `href` attribute.
+`href`              | *String*		  | `""`	    | Path of a partial to be loaded. Setting this one will remove `html` attribute.
+`model`(_optional_) | *Object/String* | `undefined` | Object (or `JSON.stringify`'ied Object) to be attached to every stamped (root) node
 
 ## Properties
 
-Property       | Type      | Description
----            | ---       | ---
-`model`        | *JSON*	   | Attached model, plays nice with Polymer data-binding
-`stampedNodes` | *Array*   | Array of stamped nodes.
+Property       | Type              | Default       | Description
+---            | ---               | ---           | ---
+`model`        | *Object*          | `undefined`   | See [attributes](#Attributes), plays nice with Polymer data-binding
+`html`         | *String*          | `""`	       | See [attributes](#Attributes)
+`href`         | *String*          | `""`	       | See [attributes](#Attributes)
+`pending`      | *HTMLLinkElement* |               | HTML Import's `<link>` that is being loaded (if any)
+`stampedNodes` | *Array*           | `[]`          | Array of stamped nodes.
+
+Please note, that properties are available after element is upgraded.
+To provide a state before element is upgraded, please use attributes.
 
 ## Events
 
-Name       | Detail                                    | Description
----        | ---                                       | ---
-`stamping` | *DocumentFragment*	fragment being stamped | Called just before stamping the fragment
+Name       | When                               | `event.detail`
+---        | ---                                | ---
+`stamped`  | Every time content is (re-)stamped | *Array* of stamped *Node* s
+`stamping` | Just before stamping the fragment  | *DocumentFragment*	being stamped
 
 ### Dependencies
 
@@ -109,23 +123,20 @@ Name       | Detail                                    | Description
 
 ## Browser Support
 
-Browser supports relies mainly on polyfills support/spec compliance.
+Browser support relies mainly on polyfills support/spec compliance.
 
-| Chrome | IE11 | Edge | Firefox  | Safari 8 | Safari 9 |
-|:------:|:----:|:----:|:--------:|:--------:|:--------:|
-|  ✓     | ✓*   | ✓*   | ✓*       | ~        | ~*       |
+| Chrome | IE11 | Edge | Firefox  | Safari 10 |
+|:------:|:----:|:----:|:--------:|:--------:|
+|  ✓     | ✓**  | ✓    | ✓        | ✓        |
 
-\* There is a workaround for [polyfill issue](https://github.com/webcomponents/webcomponentsjs/issues/470), to execute scripts and apply styles define inside template in imported html. Also, some hacks are made to preserve correct position in DOM of scripts executed by polyfill, so `previousSibling` and Polymer's `dom-bind`/`dom-repeat` can be used as in native Web Components, see [more sample use cases](https://github.com/Juicy/imported-template/tree/gh-pages/test/use-cases)
+\*\* **V1**: IE11 does not support `currentScript`, so a bunch of tests for useful cases fail.
 
-~ SauceLabs tests passed but it may not be stable.
-
- :construction: Core features more or less works, but some tests are failing.
 
 ## [Contributing and Development](CONTRIBUTING.md)
 
 ## History
 
-For detailed changelog, check [Releases](https://github.com/Juicy/imported-template/releases).
+For the detailed changelog, check [Releases](https://github.com/Juicy/imported-template/releases).
 
 ## License
 
