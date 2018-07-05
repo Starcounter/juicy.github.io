@@ -13,11 +13,11 @@
     "declarative-shadow-dom": "^0.1.0",
     "vaadin-date-picker": "vaadin/vaadin-date-picker#^3.1.0",
     "imported-template": "^3.1.0",
-
     "juicy-ace-editor": "^2.0.3",
     "juicy-dom-tree-view": "juicy/juicy-dom-tree-view#master",
     "juicy-highlight": "^2.0.0",
-    "vaadin-combo-box": "vaadin/vaadin-combo-box#4.0.0-beta3"
+    "vaadin-combo-box": "vaadin/vaadin-combo-box#4.0.0-beta3",
+    "uniform.css": "master"
   },
   "devDependencies": {
     "web-component-tester": "^6.0.0",
