@@ -1,25 +1,33 @@
 bower check-new     Checking for new versions of the project dependencies...
-juicy.github.io D:\repos\web\starcounter.github.io
-├── ace-builds#1.2.9 (latest is 1.3.3)
+juicy.github.io C:\Work\Starcounter\starcounter.github.io
+├── ace-builds#1.2.9 (latest is 1.4.1)
 ├── array.observe#0.0.1
-├── d3#3.4.13 (latest is 5.4.0)
+├── d3#3.4.13 (latest is 5.7.0)
 ├─┬ declarative-shadow-dom#0.1.0
-│ ├── document-register-element#1.9.1
-│ └── webcomponentsjs#1.2.0 (latest is 2.0.0)
-├── fast-json-patch#1.0.1 (latest is 2.0.6)
+│ ├── document-register-element#1.9.1 (1.11.2 available)
+│ └── webcomponentsjs#1.2.0 (1.2.7 available, latest is 2.1.3)
+├── fast-json-patch#1.0.1 (latest is 2.0.7)
 ├── github-markdown-css#0.2.0 (latest is 2.10.0)
 ├── highlightjs#8.7.0 (latest is 9.12.0)
-├─┬ imported-template#3.2.1
+├─┬ imported-template#3.2.1 (3.4.0 available)
 │ └── juicy-html#4.0.0
-├─┬ iron-ajax#2.1.3
-│ └─┬ polymer#2.6.0 (latest is 3.0.2)
-│   ├── shadycss#1.3.0
-│   └── webcomponentsjs#1.2.0 (latest is 2.0.0)
-├─┬ iron-icon#2.1.0
-│ ├─┬ iron-flex-layout#2.0.3
+├─┬ iron-ajax#2.1.3 (3.0.1 available)
+│ └─┬ polymer#2.6.0 (2.6.1 available, latest is 3.0.5)
+│   ├── shadycss#1.3.0 (1.5.2 available)
+│   └── webcomponentsjs#1.2.0 (1.2.7 available, latest is 2.1.3)
+├─┬ iron-icon#2.1.0 (3.0.1 available)
+│ ├─┬ iron-flex-layout#2.0.3 (latest is 3.0.1)
 │ │ └─┬ polymer#2.6.0
 │ │   ├── shadycss#1.3.0
 │ │   └── webcomponentsjs#1.2.0
+│ ├─┬ iron-meta#2.1.1 (latest is 3.0.1)
+│ │ └─┬ polymer#2.6.0
+│ │   ├── shadycss#1.3.0
+│ │   └── webcomponentsjs#1.2.0
+│ └─┬ polymer#2.6.0
+│   ├── shadycss#1.3.0
+│   └── webcomponentsjs#1.2.0
+├─┬ iron-iconset-svg#2.2.1 (3.0.1 available)
 │ ├─┬ iron-meta#2.1.1
 │ │ └─┬ polymer#2.6.0
 │ │   ├── shadycss#1.3.0
@@ -27,30 +35,294 @@ juicy.github.io D:\repos\web\starcounter.github.io
 │ └─┬ polymer#2.6.0
 │   ├── shadycss#1.3.0
 │   └── webcomponentsjs#1.2.0
-├─┬ iron-iconset-svg#2.2.1
-│ ├─┬ iron-meta#2.1.1
-│ │ └─┬ polymer#2.6.0
-│ │   ├── shadycss#1.3.0
-│ │   └── webcomponentsjs#1.2.0
-│ └─┬ polymer#2.6.0
-│   ├── shadycss#1.3.0
-│   └── webcomponentsjs#1.2.0
-├── jsoneditor#5.17.1
-├─┬ juicy-ace-editor#2.0.5
-│ ├── ace-builds#1.2.9 (latest is 1.3.3)
-│ └── webcomponentsjs#1.2.0 (latest is 2.0.0)
+├── jsoneditor#5.17.1 (5.24.6 available)
+├─┬ juicy-ace-editor#2.0.5 (2.1.0 available)
+│ ├── ace-builds#1.2.9 (latest is 1.4.1)
+│ └── webcomponentsjs#1.2.0 (1.2.7 available, latest is 2.1.3)
 ├─┬ juicy-dom-tree-view#e81fb67b2b
 │ ├─┬ polymer#2.6.0
 │ │ ├── shadycss#1.3.0
 │ │ └── webcomponentsjs#1.2.0
-│ └── webcomponentsjs#1.2.0 (2.0.0 available)
+│ └── webcomponentsjs#1.2.0 (2.1.3 available)
 ├── juicy-highlight#2.0.0
-├── marked#0.3.19 (latest is 0.4.0)
+├── juicy-popover#2.1.0
+├── marked#0.3.19 (latest is 0.5.1)
 ├── object.observe#0.2.6
-├─┬ polymer#2.6.0 (latest is 3.0.2)
+├─┬ polymer#2.6.0 (2.6.1 available, latest is 3.0.5)
 │ ├── shadycss#1.3.0
 │ └── webcomponentsjs#1.2.0
-├─┬ vaadin-combo-box#4.0.0-beta3 (latest is 4.1.0-alpha1)
+├─┬ uniform.css#e0044dada7
+│ ├─┬ vaadin-date-picker#3.1.1 (3.3.0 available)
+│ │ ├─┬ iron-a11y-announcer#2.1.0 (latest is 3.0.1)
+│ │ │ └─┬ polymer#2.6.0
+│ │ │   ├── shadycss#1.3.0
+│ │ │   └── webcomponentsjs#1.2.0
+│ │ ├─┬ iron-a11y-keys-behavior#2.1.1 (latest is 3.0.1)
+│ │ │ └─┬ polymer#2.6.0
+│ │ │   ├── shadycss#1.3.0
+│ │ │   └── webcomponentsjs#1.2.0
+│ │ ├─┬ iron-media-query#2.1.0 (latest is 3.0.1)
+│ │ │ └─┬ polymer#2.6.0
+│ │ │   ├── shadycss#1.3.0
+│ │ │   └── webcomponentsjs#1.2.0
+│ │ ├─┬ iron-resizable-behavior#2.1.0 (2.1.1 available, latest is 3.0.1)
+│ │ │ └─┬ polymer#2.6.0
+│ │ │   ├── shadycss#1.3.0
+│ │ │   └── webcomponentsjs#1.2.0
+│ │ ├── polymer#2.6.0 (2.6.1 available, latest is 3.0.5)
+│ │ ├─┬ vaadin-button#2.0.1 (2.1.0 available)
+│ │ │ ├── polymer#2.6.0 (2.6.1 available, latest is 3.0.5)
+│ │ │ ├─┬ vaadin-control-state-mixin#2.0.3
+│ │ │ │ └── polymer#2.6.0
+│ │ │ ├─┬ vaadin-element-mixin#1.0.2
+│ │ │ │ ├── polymer#2.6.0
+│ │ │ │ ├─┬ vaadin-development-mode-detector#1.0.3
+│ │ │ │ │ └── polymer#2.6.0
+│ │ │ │ └─┬ vaadin-usage-statistics#1.0.8
+│ │ │ │   ├── polymer#2.6.0
+│ │ │ │   └─┬ vaadin-development-mode-detector#1.0.3
+│ │ │ │     └── polymer#2.6.0
+│ │ │ ├─┬ vaadin-lumo-styles#1.0.0
+│ │ │ │ ├─┬ iron-icon#2.1.0
+│ │ │ │ │ ├─┬ iron-flex-layout#2.0.3
+│ │ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ │ ├─┬ iron-meta#2.1.1
+│ │ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ ├─┬ iron-iconset-svg#2.2.1
+│ │ │ │ │ ├─┬ iron-meta#2.1.1
+│ │ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ └── polymer#2.6.0
+│ │ │ └─┬ vaadin-themable-mixin#1.1.6
+│ │ │   └── polymer#2.6.0
+│ │ ├─┬ vaadin-control-state-mixin#2.0.3 (2.1.1 available)
+│ │ │ └── polymer#2.6.0
+│ │ ├─┬ vaadin-element-mixin#1.0.2 (1.1.2 available, latest is 2.1.2)
+│ │ │ ├── polymer#2.6.0 (2.6.1 available, latest is 3.0.5)
+│ │ │ ├─┬ vaadin-development-mode-detector#1.0.3 (1.1.0 available, latest is 2.0.0)
+│ │ │ │ └── polymer#2.6.0
+│ │ │ └─┬ vaadin-usage-statistics#1.0.8 (1.1.0 available, latest is 2.0.1)
+│ │ │   ├── polymer#2.6.0
+│ │ │   └─┬ vaadin-development-mode-detector#1.0.3
+│ │ │     └── polymer#2.6.0
+│ │ ├─┬ vaadin-lumo-styles#1.0.0 (1.3.1 available)
+│ │ │ ├─┬ iron-icon#2.1.0 (latest is 3.0.1)
+│ │ │ │ ├─┬ iron-flex-layout#2.0.3
+│ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ ├─┬ iron-meta#2.1.1
+│ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │   ├── shadycss#1.3.0
+│ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ ├─┬ iron-iconset-svg#2.2.1 (latest is 3.0.1)
+│ │ │ │ ├─┬ iron-meta#2.1.1
+│ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │   ├── shadycss#1.3.0
+│ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ └── polymer#2.6.0
+│ │ ├─┬ vaadin-overlay#3.0.3 (3.2.1 available)
+│ │ │ ├─┬ iron-overlay-behavior#2.3.4 (latest is 3.0.2)
+│ │ │ │ ├── iron-a11y-keys-behavior#2.1.1 (latest is 3.0.1)
+│ │ │ │ ├─┬ iron-fit-behavior#2.2.1 (latest is 3.0.1)
+│ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ ├── iron-resizable-behavior#2.1.0 (2.1.1 available, latest is 3.0.1)
+│ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │   ├── shadycss#1.3.0
+│ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ ├── polymer#2.6.0
+│ │ │ ├─┬ vaadin-lumo-styles#1.0.0
+│ │ │ │ ├─┬ iron-icon#2.1.0
+│ │ │ │ │ ├─┬ iron-flex-layout#2.0.3
+│ │ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ │ ├─┬ iron-meta#2.1.1
+│ │ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ ├─┬ iron-iconset-svg#2.2.1
+│ │ │ │ │ ├─┬ iron-meta#2.1.1
+│ │ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ └── polymer#2.6.0
+│ │ │ └── vaadin-themable-mixin#1.1.6 (1.3.2 available)
+│ │ ├─┬ vaadin-text-field#2.0.1 (2.1.3 available)
+│ │ │ ├── polymer#2.6.0
+│ │ │ ├─┬ vaadin-control-state-mixin#2.0.3
+│ │ │ │ └── polymer#2.6.0
+│ │ │ ├─┬ vaadin-element-mixin#1.0.2
+│ │ │ │ ├── polymer#2.6.0
+│ │ │ │ ├─┬ vaadin-development-mode-detector#1.0.3
+│ │ │ │ │ └── polymer#2.6.0
+│ │ │ │ └─┬ vaadin-usage-statistics#1.0.8
+│ │ │ │   ├── polymer#2.6.0
+│ │ │ │   └─┬ vaadin-development-mode-detector#1.0.3
+│ │ │ │     └── polymer#2.6.0
+│ │ │ ├─┬ vaadin-lumo-styles#1.0.0
+│ │ │ │ ├─┬ iron-icon#2.1.0
+│ │ │ │ │ ├─┬ iron-flex-layout#2.0.3
+│ │ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ │ ├─┬ iron-meta#2.1.1
+│ │ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ ├─┬ iron-iconset-svg#2.2.1
+│ │ │ │ │ ├─┬ iron-meta#2.1.1
+│ │ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ └── polymer#2.6.0
+│ │ │ └─┬ vaadin-themable-mixin#1.1.6
+│ │ │   └── polymer#2.6.0
+│ │ └─┬ vaadin-themable-mixin#1.1.6 (1.3.2 available)
+│ │   └── polymer#2.6.0 (2.6.1 available, latest is 3.0.5)
+│ ├─┬ vaadin-grid#5.0.4 (5.2.1 available)
+│ │ ├── iron-a11y-announcer#2.1.0 (latest is 3.0.1)
+│ │ ├── iron-a11y-keys-behavior#2.1.1 (latest is 3.0.1)
+│ │ ├── iron-resizable-behavior#2.1.0 (2.1.1 available, latest is 3.0.1)
+│ │ ├── iron-scroll-target-behavior#2.1.1 (latest is 3.0.1)
+│ │ ├── polymer#2.6.0
+│ │ ├─┬ vaadin-checkbox#2.1.1 (2.2.3 available)
+│ │ │ ├── polymer#2.6.0
+│ │ │ ├─┬ vaadin-control-state-mixin#2.0.3
+│ │ │ │ └── polymer#2.6.0
+│ │ │ ├─┬ vaadin-element-mixin#1.0.2
+│ │ │ │ ├── polymer#2.6.0
+│ │ │ │ ├─┬ vaadin-development-mode-detector#1.0.3
+│ │ │ │ │ └── polymer#2.6.0
+│ │ │ │ └─┬ vaadin-usage-statistics#1.0.8
+│ │ │ │   ├── polymer#2.6.0
+│ │ │ │   └─┬ vaadin-development-mode-detector#1.0.3
+│ │ │ │     └── polymer#2.6.0
+│ │ │ ├─┬ vaadin-lumo-styles#1.0.0
+│ │ │ │ ├─┬ iron-icon#2.1.0
+│ │ │ │ │ ├─┬ iron-flex-layout#2.0.3
+│ │ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ │ ├─┬ iron-meta#2.1.1
+│ │ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ ├─┬ iron-iconset-svg#2.2.1
+│ │ │ │ │ ├─┬ iron-meta#2.1.1
+│ │ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ └── polymer#2.6.0
+│ │ │ └─┬ vaadin-themable-mixin#1.1.6
+│ │ │   └── polymer#2.6.0
+│ │ ├─┬ vaadin-element-mixin#1.0.2
+│ │ │ ├── polymer#2.6.0
+│ │ │ ├─┬ vaadin-development-mode-detector#1.0.3
+│ │ │ │ └── polymer#2.6.0
+│ │ │ └─┬ vaadin-usage-statistics#1.0.8
+│ │ │   ├── polymer#2.6.0
+│ │ │   └─┬ vaadin-development-mode-detector#1.0.3
+│ │ │     └── polymer#2.6.0
+│ │ ├─┬ vaadin-lumo-styles#1.0.0
+│ │ │ ├─┬ iron-icon#2.1.0
+│ │ │ │ ├─┬ iron-flex-layout#2.0.3
+│ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ ├─┬ iron-meta#2.1.1
+│ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │   ├── shadycss#1.3.0
+│ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ ├─┬ iron-iconset-svg#2.2.1
+│ │ │ │ ├─┬ iron-meta#2.1.1
+│ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │   ├── shadycss#1.3.0
+│ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ └── polymer#2.6.0
+│ │ ├─┬ vaadin-text-field#2.0.1
+│ │ │ ├── polymer#2.6.0
+│ │ │ ├─┬ vaadin-control-state-mixin#2.0.3
+│ │ │ │ └── polymer#2.6.0
+│ │ │ ├─┬ vaadin-element-mixin#1.0.2
+│ │ │ │ ├── polymer#2.6.0
+│ │ │ │ ├─┬ vaadin-development-mode-detector#1.0.3
+│ │ │ │ │ └── polymer#2.6.0
+│ │ │ │ └─┬ vaadin-usage-statistics#1.0.8
+│ │ │ │   ├── polymer#2.6.0
+│ │ │ │   └─┬ vaadin-development-mode-detector#1.0.3
+│ │ │ │     └── polymer#2.6.0
+│ │ │ ├─┬ vaadin-lumo-styles#1.0.0
+│ │ │ │ ├─┬ iron-icon#2.1.0
+│ │ │ │ │ ├─┬ iron-flex-layout#2.0.3
+│ │ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ │ ├─┬ iron-meta#2.1.1
+│ │ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ ├─┬ iron-iconset-svg#2.2.1
+│ │ │ │ │ ├─┬ iron-meta#2.1.1
+│ │ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ │ └─┬ polymer#2.6.0
+│ │ │ │ │   ├── shadycss#1.3.0
+│ │ │ │ │   └── webcomponentsjs#1.2.0
+│ │ │ │ └── polymer#2.6.0
+│ │ │ └─┬ vaadin-themable-mixin#1.1.6
+│ │ │   └── polymer#2.6.0
+│ │ └─┬ vaadin-themable-mixin#1.1.6
+│ │   └── polymer#2.6.0
+│ └── webcomponentsjs#1.2.0 (1.2.7 available, latest is 2.1.3)
+├─┬ vaadin-combo-box#4.0.0-beta3 (latest is 4.2.0-alpha7)
 │ ├─┬ iron-a11y-announcer#2.1.0
 │ │ └─┬ polymer#2.6.0
 │ │   ├── shadycss#1.3.0
@@ -59,10 +331,10 @@ juicy.github.io D:\repos\web\starcounter.github.io
 │ │ └─┬ polymer#2.6.0
 │ │   ├── shadycss#1.3.0
 │ │   └── webcomponentsjs#1.2.0
-│ ├─┬ iron-list#2.0.16
+│ ├─┬ iron-list#2.0.16 (2.0.19 available, latest is 3.0.1)
 │ │ ├── iron-a11y-keys-behavior#2.1.1
 │ │ ├── iron-resizable-behavior#2.1.0
-│ │ ├─┬ iron-scroll-target-behavior#2.1.1
+│ │ ├─┬ iron-scroll-target-behavior#2.1.1 (latest is 3.0.1)
 │ │ │ └─┬ polymer#2.6.0
 │ │ │   ├── shadycss#1.3.0
 │ │ │   └── webcomponentsjs#1.2.0
@@ -73,18 +345,18 @@ juicy.github.io D:\repos\web\starcounter.github.io
 │ │ └─┬ polymer#2.6.0
 │ │   ├── shadycss#1.3.0
 │ │   └── webcomponentsjs#1.2.0
-│ ├── polymer#2.6.0 (latest is 3.0.2)
+│ ├── polymer#2.6.0
 │ ├─┬ vaadin-control-state-mixin#2.0.3
 │ │ └── polymer#2.6.0
 │ ├─┬ vaadin-element-mixin#1.0.2
-│ │ ├── polymer#2.6.0 (latest is 3.0.2)
+│ │ ├── polymer#2.6.0
 │ │ ├─┬ vaadin-development-mode-detector#1.0.3
 │ │ │ └── polymer#2.6.0
 │ │ └─┬ vaadin-usage-statistics#1.0.8
 │ │   ├── polymer#2.6.0
 │ │   └─┬ vaadin-development-mode-detector#1.0.3
 │ │     └── polymer#2.6.0
-│ ├─┬ vaadin-item#2.0.0 (2.1.0-alpha1 available)
+│ ├─┬ vaadin-item#2.0.0 (2.1.0 available)
 │ │ ├── polymer#2.6.0
 │ │ ├─┬ vaadin-lumo-styles#1.0.0
 │ │ │ ├─┬ iron-icon#2.1.0
@@ -108,7 +380,7 @@ juicy.github.io D:\repos\web\starcounter.github.io
 │ │ │ │   ├── shadycss#1.3.0
 │ │ │ │   └── webcomponentsjs#1.2.0
 │ │ │ └── polymer#2.6.0
-│ │ └── vaadin-themable-mixin#1.1.6
+│ │ └── vaadin-themable-mixin#1.1.6 (1.3.2 available)
 │ ├─┬ vaadin-lumo-styles#1.0.0
 │ │ ├─┬ iron-icon#2.1.0
 │ │ │ ├─┬ iron-flex-layout#2.0.3
@@ -131,8 +403,8 @@ juicy.github.io D:\repos\web\starcounter.github.io
 │ │ │   ├── shadycss#1.3.0
 │ │ │   └── webcomponentsjs#1.2.0
 │ │ └── polymer#2.6.0
-│ ├── vaadin-overlay#3.0.3 incompatible with ^2.0.0 (2.1.1 available, latest is 3.1.0-alpha1)
-│ ├─┬ vaadin-text-field#2.0.1 (2.1.0-alpha1 available)
+│ ├── vaadin-overlay#3.0.3 incompatible with ^2.0.0 (2.1.1 available, latest is 3.2.1)
+│ ├─┬ vaadin-text-field#2.0.1
 │ │ ├── polymer#2.6.0
 │ │ ├─┬ vaadin-control-state-mixin#2.0.3
 │ │ │ └── polymer#2.6.0
@@ -169,8 +441,8 @@ juicy.github.io D:\repos\web\starcounter.github.io
 │ │ └─┬ vaadin-themable-mixin#1.1.6
 │ │   └── polymer#2.6.0
 │ └─┬ vaadin-themable-mixin#1.1.6
-│   └── polymer#2.6.0 (latest is 3.0.2)
-├─┬ vaadin-date-picker#3.1.1 (3.2.0-alpha2 available)
+│   └── polymer#2.6.0
+├─┬ vaadin-date-picker#3.1.1 (3.3.0 available)
 │ ├─┬ iron-a11y-announcer#2.1.0
 │ │ └─┬ polymer#2.6.0
 │ │   ├── shadycss#1.3.0
@@ -187,8 +459,8 @@ juicy.github.io D:\repos\web\starcounter.github.io
 │ │ └─┬ polymer#2.6.0
 │ │   ├── shadycss#1.3.0
 │ │   └── webcomponentsjs#1.2.0
-│ ├── polymer#2.6.0 (latest is 3.0.2)
-│ ├─┬ vaadin-button#2.0.1 (2.1.0-alpha1 available)
+│ ├── polymer#2.6.0
+│ ├─┬ vaadin-button#2.0.1
 │ │ ├── polymer#2.6.0
 │ │ ├─┬ vaadin-control-state-mixin#2.0.3
 │ │ │ └── polymer#2.6.0
@@ -256,7 +528,7 @@ juicy.github.io D:\repos\web\starcounter.github.io
 │ │ │   ├── shadycss#1.3.0
 │ │ │   └── webcomponentsjs#1.2.0
 │ │ └── polymer#2.6.0
-│ ├─┬ vaadin-overlay#3.0.3 (3.1.0-alpha1 available)
+│ ├─┬ vaadin-overlay#3.0.3
 │ │ ├─┬ iron-overlay-behavior#2.3.4
 │ │ │ ├── iron-a11y-keys-behavior#2.1.1
 │ │ │ ├─┬ iron-fit-behavior#2.2.1
@@ -329,15 +601,15 @@ juicy.github.io D:\repos\web\starcounter.github.io
 │ │   └── polymer#2.6.0
 │ └─┬ vaadin-themable-mixin#1.1.6
 │   └── polymer#2.6.0
-├─┬ vaadin-material-theme#0.3.0 (latest is 1.0.0-alpha1)
-│ └── polymer#2.6.0 (latest is 3.0.2)
+├─┬ vaadin-material-theme#0.3.0 (latest is 1.2.0)
+│ └── polymer#2.6.0 (2.6.1 available, latest is 3.0.5)
 └─┬ web-component-tester#6.5.0 (6.6.0-pre.5 available)
   ├── accessibility-developer-tools#2.12.0
-  ├── async#1.5.2 (latest is 2.6.1)
-  ├── chai#3.5.0 (latest is 4.1.2)
-  ├── lodash#3.10.1 (3.11.0-npm-packages available, latest is 4.17.10)
+  ├── async#1.5.2 (latest is 3.0.1-0)
+  ├── chai#3.5.0 (latest is 4.2.0)
+  ├── lodash#3.10.1 (3.11.0-npm-packages available, latest is 4.17.11)
   ├── mocha#3.5.3 (latest is 5.2.0)
   ├── sinon-chai#2.14.0 (latest is 3.2.0)
   ├── sinonjs#1.17.1
   ├── stacky#1.3.2
-  └── test-fixture#3.0.0
+  └── test-fixture#3.0.0 (latest is 4.0.2)
