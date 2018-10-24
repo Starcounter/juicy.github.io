@@ -17,7 +17,8 @@
     "juicy-dom-tree-view": "juicy/juicy-dom-tree-view#master",
     "juicy-highlight": "^2.0.0",
     "vaadin-combo-box": "vaadin/vaadin-combo-box#4.0.0-beta3",
-    "uniform.css": "master"
+    "uniform.css": "master",
+    "juicy-popover": "^2.1.0"
   },
   "devDependencies": {
     "web-component-tester": "^6.0.0",
